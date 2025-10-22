@@ -138,9 +138,7 @@ class ResourcePool:
                         resource.close()
                     elif hasattr(resource, 'cleanup'):
                         resource.cleanup()
-                    elif hasattr(resource, '__del__'):
-                        # Force cleanup if resource has destructor
-                        del resource
+                    # Note: Resources without explicit cleanup methods will be handled by gc.collect() below
                 except Exception as e:
                     logger.warning(f"Error cleaning up resource '{key}': {e}")
 

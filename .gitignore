@@ -38,6 +38,9 @@ ENV/
 # CSV data files (keep structure, ignore actual data)
 style/*.csv
 
+# DoRA adapters directory
+dora/
+
 # IDE
 .vscode/
 .idea/

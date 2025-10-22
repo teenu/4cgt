@@ -163,17 +163,15 @@ DEFAULT_POSITIVE_PREFIX = "very awa, masterpiece, best quality, year 2024, newes
 
 # Model search paths
 MODEL_SEARCH_PATHS = [
-    "./NoobAI-XL-Vpred-v1.0.safetensors",
-    "./models/NoobAI-XL-Vpred-v1.0.safetensors",
-    os.path.join(os.path.expanduser("~"), "Downloads", "NoobAI-XL-Vpred-v1.0.safetensors"),
-    os.path.join(os.path.expanduser("~"), "Models", "NoobAI-XL-Vpred-v1.0.safetensors"),
-    os.path.join(os.getcwd(), "NoobAI-XL-Vpred-v1.0.safetensors")
+    "./NoobAI-XL-Vpred-v1.0.safetensors",  # Current directory
+    "./models/NoobAI-XL-Vpred-v1.0.safetensors",  # Models subdirectory
+    os.path.join(os.path.expanduser("~"), "Downloads", "NoobAI-XL-Vpred-v1.0.safetensors"),  # User Downloads
+    os.path.join(os.path.expanduser("~"), "Models", "NoobAI-XL-Vpred-v1.0.safetensors"),  # User Models
 ]
 
 # DoRA adapter search directories
 DORA_SEARCH_DIRECTORIES = [
-    "./dora/",
-    "./",
-    os.path.join(os.getcwd(), "dora"),
-    os.path.join(os.path.expanduser("~"), "Downloads", "dora")
+    "./dora/",  # Dora subdirectory in current directory
+    "./",  # Current directory root
+    os.path.join(os.path.expanduser("~"), "Downloads", "dora")  # User Downloads/dora
 ]

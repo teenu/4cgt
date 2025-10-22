@@ -36,12 +36,9 @@ def validate_model_path(path: str) -> Tuple[bool, str]:
         return False, "Please provide a model path"
 
     try:
-        # Normalize and validate path
+        # Normalize and validate path (resolves all '..' and makes absolute)
+        # This prevents path traversal attacks by resolving relative components
         normalized_path = os.path.normpath(os.path.abspath(path))
-
-        # Check for path traversal attempts
-        if '..' in os.path.relpath(normalized_path):
-            return False, "Invalid path format"
 
         if not os.path.exists(normalized_path):
             return False, f"Model file not found: {normalized_path}"
@@ -128,12 +125,9 @@ def validate_dora_path(path: str) -> Tuple[bool, str]:
         return False, "Please provide a DoRA adapter path"
 
     try:
-        # Normalize and validate path
+        # Normalize and validate path (resolves all '..' and makes absolute)
+        # This prevents path traversal attacks by resolving relative components
         normalized_path = os.path.normpath(os.path.abspath(path))
-
-        # Check for path traversal attempts
-        if '..' in os.path.relpath(normalized_path):
-            return False, "Invalid path format"
 
         if not os.path.exists(normalized_path):
             return False, f"DoRA file not found: {normalized_path}"

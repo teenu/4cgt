@@ -394,6 +394,11 @@ class NoobAIEngine:
                 seed = random.randint(0, 2**32 - 1)
             generator = torch.Generator(self._device).manual_seed(seed)
 
+            # Pre-deactivate DoRA if start step is later than step 1
+            # This ensures DoRA is inactive from the beginning when delayed activation is requested
+            if self.enable_dora and self.dora_loaded and self.dora_start_step > 1:
+                self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
+
             # Generation callback
             start_time = time.time()
             def callback_on_step_end(pipe, step_index, timestep, callback_kwargs):
@@ -406,19 +411,16 @@ class NoobAIEngine:
                 eta = (elapsed / current_step) * (steps - current_step) if current_step > 0 else 0
 
                 # Handle DoRA start step control
+                # Activate DoRA one step early (in callback after step N-1) so it's active for step N
                 if self.enable_dora and self.dora_loaded and self.pipe is not None:
-                    if current_step == 1 and self.dora_start_step > 1:
-                        # Deactivate DoRA at the beginning if start step is later
-                        self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
-                        desc = f"Step {current_step}/{steps} (DoRA starts at step {self.dora_start_step}, ETA: {eta:.1f}s)"
-                    elif current_step == self.dora_start_step:
-                        # Activate DoRA adapter at the specified start step
+                    if current_step == self.dora_start_step - 1 and self.dora_start_step > 1:
+                        # Activate DoRA adapter before the target step
                         self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
-                        desc = f"Step {current_step}/{steps} (DoRA activated, ETA: {eta:.1f}s)"
-                    elif current_step < self.dora_start_step:
-                        desc = f"Step {current_step}/{steps} (DoRA starts at step {self.dora_start_step}, ETA: {eta:.1f}s)"
-                    else:
+                        desc = f"Step {current_step}/{steps} (DoRA will activate at step {self.dora_start_step}, ETA: {eta:.1f}s)"
+                    elif current_step >= self.dora_start_step:
                         desc = f"Step {current_step}/{steps} (DoRA active, ETA: {eta:.1f}s)"
+                    else:
+                        desc = f"Step {current_step}/{steps} (DoRA starts at step {self.dora_start_step}, ETA: {eta:.1f}s)"
                 else:
                     desc = f"Step {current_step}/{steps} (ETA: {eta:.1f}s)"
 
