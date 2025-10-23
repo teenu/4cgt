@@ -255,6 +255,13 @@ def create_interface() -> gr.Blocks:
                                 visible=default_enable_dora
                             )
 
+                            dora_toggle_mode = gr.Checkbox(
+                                label="🔄 Enable DoRA Toggle Mode",
+                                value=False,
+                                visible=default_enable_dora,
+                                info="Alternate ON,OFF,ON,OFF for improved anatomical accuracy"
+                            )
+
                     steps = gr.Slider(
                         label="Steps",
                         minimum=GEN_CONFIG.MIN_STEPS,
@@ -363,7 +370,7 @@ def create_interface() -> gr.Blocks:
         gen_inputs = [
             final_prompt, negative_prompt, resolution, cfg_scale, steps,
             rescale_cfg, seed, use_custom_resolution, custom_width,
-            custom_height, auto_randomize_seed, adapter_strength, enable_dora, dora_start_step
+            custom_height, auto_randomize_seed, adapter_strength, enable_dora, dora_start_step, dora_toggle_mode
         ]
         gen_outputs = [output_image, generation_info, seed]
 
@@ -430,6 +437,9 @@ def create_interface() -> gr.Blocks:
             dora_start_step_update = gr.update(visible=enabled)
             dora_start_step_status_update = gr.update(visible=enabled)
 
+            # Update DoRA toggle mode checkbox visibility
+            dora_toggle_mode_update = gr.update(visible=enabled)
+
             # Provide status feedback with visibility and message
             if enabled:
                 status_msg = '<div style="color: green;">🎯 DoRA will be enabled for next generation</div>'
@@ -438,12 +448,32 @@ def create_interface() -> gr.Blocks:
 
             adapter_status_update = gr.update(visible=enabled, value=status_msg)
 
-            return adapter_strength_update, adapter_status_update, dora_start_step_update, dora_start_step_status_update
+            return adapter_strength_update, adapter_status_update, dora_start_step_update, dora_start_step_status_update, dora_toggle_mode_update
 
         enable_dora.change(
             toggle_dora_visibility,
             inputs=[enable_dora],
-            outputs=[adapter_strength, adapter_status, dora_start_step, dora_start_step_status]
+            outputs=[adapter_strength, adapter_status, dora_start_step, dora_start_step_status, dora_toggle_mode]
+        )
+
+        # Toggle mode handler - disable start step when toggle mode is active
+        def handle_toggle_mode_change(toggle_enabled):
+            """Disable DoRA start step when toggle mode is enabled."""
+            if toggle_enabled:
+                return (
+                    gr.update(interactive=False, value=1),  # Reset and disable start step
+                    gr.update(value='<div style="color: gray;">⚪ Disabled (toggle mode active)</div>')
+                )
+            else:
+                return (
+                    gr.update(interactive=True),
+                    gr.update(value='<div style="color: green;">✅ Start at step 1</div>')
+                )
+
+        dora_toggle_mode.change(
+            handle_toggle_mode_change,
+            inputs=[dora_toggle_mode],
+            outputs=[dora_start_step, dora_start_step_status]
         )
 
         # Search handlers
@@ -578,6 +608,7 @@ def create_interface() -> gr.Blocks:
                 False,
                 OPTIMAL_SETTINGS['width'],
                 OPTIMAL_SETTINGS['height'],
+                False,  # Reset toggle mode to disabled
                 cfg_updater(OPTIMAL_SETTINGS['cfg_scale']),
                 steps_updater(OPTIMAL_SETTINGS['steps']),
                 rescale_updater(OPTIMAL_SETTINGS['rescale_cfg']),
@@ -590,6 +621,7 @@ def create_interface() -> gr.Blocks:
             outputs=[
                 cfg_scale, steps, rescale_cfg, adapter_strength, dora_start_step, resolution,
                 use_custom_resolution, custom_width, custom_height,
+                dora_toggle_mode,  # Add toggle mode reset
                 cfg_status, steps_status, rescale_status, adapter_status, dora_start_step_status
             ]
         )

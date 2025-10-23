@@ -355,6 +355,7 @@ class NoobAIEngine:
         adapter_strength: Optional[float] = None,
         enable_dora: Optional[bool] = None,
         dora_start_step: Optional[int] = None,
+        dora_toggle_mode: bool = False,
         progress_callback: Optional[Callable[[float, str], None]] = None
     ) -> Tuple[Image.Image, int, str]:
         """Generate an image with the specified parameters."""
@@ -394,10 +395,19 @@ class NoobAIEngine:
                 seed = random.randint(0, 2**32 - 1)
             generator = torch.Generator(self._device).manual_seed(seed)
 
+            # Validate toggle mode and start step don't conflict
+            if dora_toggle_mode and self.enable_dora and self.dora_loaded and self.dora_start_step > 1:
+                logger.warning(f"Toggle mode enabled with dora_start_step={self.dora_start_step}. Toggle mode will override start_step setting.")
+
             # Pre-deactivate DoRA if start step is later than step 1
             # This ensures DoRA is inactive from the beginning when delayed activation is requested
-            if self.enable_dora and self.dora_loaded and self.dora_start_step > 1:
+            if self.enable_dora and self.dora_loaded and self.dora_start_step > 1 and not dora_toggle_mode:
                 self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
+
+            # For toggle mode, set initial DoRA state to ON
+            if dora_toggle_mode and self.enable_dora and self.dora_loaded:
+                # Pattern: Step 0=ON (init), Step 1=OFF, Step 2=ON, Step 3=OFF...
+                self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
 
             # Generation callback
             start_time = time.time()
@@ -410,9 +420,28 @@ class NoobAIEngine:
                 elapsed = time.time() - start_time
                 eta = (elapsed / current_step) * (steps - current_step) if current_step > 0 else 0
 
-                # Handle DoRA start step control
-                # Activate DoRA one step early (in callback after step N-1) so it's active for step N
-                if self.enable_dora and self.dora_loaded and self.pipe is not None:
+                # Handle DoRA toggle mode - alternate ON/OFF for improved anatomical accuracy
+                if dora_toggle_mode and self.enable_dora and self.dora_loaded and self.pipe is not None:
+                    # Callback runs AFTER step_index N completes, sets state for step_index N+1
+                    # step_index is 0-indexed: 0, 1, 2, ..., 29 (for 30 steps)
+                    # Pattern: Step 0:ON, Step 1:OFF, Step 2:ON, Step 3:OFF...
+                    # Even step indices = ON, Odd step indices = OFF
+                    next_step_index = step_index + 1
+
+                    if next_step_index < steps:  # Don't set state after last step
+                        if next_step_index % 2 == 0:  # Next is even - turn ON
+                            self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
+                            current_state = "ON" if step_index % 2 == 0 else "OFF"
+                            desc = f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: ON, ETA: {eta:.1f}s)"
+                        else:  # Next is odd - turn OFF
+                            self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
+                            current_state = "ON" if step_index % 2 == 0 else "OFF"
+                            desc = f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: OFF, ETA: {eta:.1f}s)"
+                    else:
+                        current_state = "ON" if step_index % 2 == 0 else "OFF"
+                        desc = f"Step {current_step}/{steps} (DoRA: {current_state}, final, ETA: {eta:.1f}s)"
+                # Handle DoRA start step control (normal mode)
+                elif self.enable_dora and self.dora_loaded and self.pipe is not None:
                     if current_step == self.dora_start_step - 1 and self.dora_start_step > 1:
                         # Activate DoRA adapter before the target step
                         self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
@@ -452,7 +481,13 @@ class NoobAIEngine:
                 if self.dora_loaded:
                     dora_name = os.path.basename(self.dora_path) if self.dora_path else "DoRA"
                     if self.enable_dora:
-                        info_parts.append(f"🎯 DoRA: {dora_name} (strength: {self.adapter_strength})")
+                        dora_info = f"🎯 DoRA: {dora_name} (strength: {self.adapter_strength}"
+                        if dora_toggle_mode:
+                            dora_info += ", toggle: ON,OFF,ON,OFF..."
+                        elif self.dora_start_step > 1:
+                            dora_info += f", starts at step {self.dora_start_step}"
+                        dora_info += ")"
+                        info_parts.append(dora_info)
                     else:
                         info_parts.append(f"⚪ DoRA: {dora_name} (disabled)")
                 elif self.dora_path:  # DoRA file exists but not loaded
@@ -480,8 +515,12 @@ class NoobAIEngine:
                     metadata["dora_path"] = os.path.basename(self.dora_path) if self.dora_path else "unknown"
                     if self.enable_dora:
                         metadata["adapter_strength"] = str(self.adapter_strength)
+                        metadata["dora_start_step"] = str(self.dora_start_step)
+                        metadata["dora_toggle_mode"] = str(dora_toggle_mode).lower()
                     else:
                         metadata["adapter_strength"] = "0.0"
+                        metadata["dora_start_step"] = "1"
+                        metadata["dora_toggle_mode"] = "false"
 
                 image.info = metadata
 
