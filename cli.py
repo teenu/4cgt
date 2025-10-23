@@ -161,7 +161,7 @@ def cli_generate(args):
             adapter_strength=args.adapter_strength if args.enable_dora else None,
             enable_dora=args.enable_dora,
             dora_start_step=args.dora_start_step if args.enable_dora else None,
-            dora_toggle_mode=args.dora_toggle_mode if args.enable_dora else False,
+            dora_toggle_mode=args.dora_toggle_mode if args.enable_dora else None,
             progress_callback=progress_callback
         )
 
@@ -210,7 +210,8 @@ Examples:
   %(prog)s --cli --prompt "portrait" --enable-dora --dora-path /path/to/dora.safetensors --adapter-strength 0.8 --dora-start-step 10  # DoRA activates at step 10/35
   %(prog)s --cli --prompt "landscape" --enable-dora --dora-start-step 1   # DoRA active from first step (default)
   %(prog)s --cli --prompt "abstract art" --enable-dora --dora-start-step 25 --steps 40  # Late DoRA activation for subtle effects
-  %(prog)s --cli --prompt "portrait" --enable-dora --dora-toggle-mode  # Toggle DoRA ON,OFF,ON,OFF for better anatomy
+  %(prog)s --cli --prompt "portrait" --enable-dora --dora-toggle-mode standard  # Toggle: ON,OFF,ON,OFF throughout
+  %(prog)s --cli --prompt "landscape" --enable-dora --dora-toggle-mode smart  # Toggle: ON,OFF through step 20, then ON
         """
     )
 
@@ -328,8 +329,10 @@ Examples:
     )
     cli_group.add_argument(
         "--dora-toggle-mode",
-        action="store_true",
-        help="Enable DoRA toggle mode (alternates ON,OFF,ON,OFF... for improved anatomical accuracy)"
+        type=str,
+        choices=["standard", "smart"],
+        default=None,
+        help="DoRA toggle mode. 'standard': ON,OFF,ON,OFF throughout. 'smart': ON,OFF,ON,OFF through step 20, then ON for remainder"
     )
     cli_group.add_argument(
         "--verbose",

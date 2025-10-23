@@ -355,7 +355,7 @@ class NoobAIEngine:
         adapter_strength: Optional[float] = None,
         enable_dora: Optional[bool] = None,
         dora_start_step: Optional[int] = None,
-        dora_toggle_mode: bool = False,
+        dora_toggle_mode: Optional[str] = None,
         progress_callback: Optional[Callable[[float, str], None]] = None
     ) -> Tuple[Image.Image, int, str]:
         """Generate an image with the specified parameters."""
@@ -397,16 +397,16 @@ class NoobAIEngine:
 
             # Validate toggle mode and start step don't conflict
             if dora_toggle_mode and self.enable_dora and self.dora_loaded and self.dora_start_step > 1:
-                logger.warning(f"Toggle mode enabled with dora_start_step={self.dora_start_step}. Toggle mode will override start_step setting.")
+                logger.warning(f"Toggle mode '{dora_toggle_mode}' enabled with dora_start_step={self.dora_start_step}. Toggle mode will override start_step setting.")
 
             # Pre-deactivate DoRA if start step is later than step 1
             # This ensures DoRA is inactive from the beginning when delayed activation is requested
             if self.enable_dora and self.dora_loaded and self.dora_start_step > 1 and not dora_toggle_mode:
                 self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
 
-            # For toggle mode, set initial DoRA state to ON
+            # For toggle mode, set initial DoRA state to ON (both standard and smart start ON)
             if dora_toggle_mode and self.enable_dora and self.dora_loaded:
-                # Pattern: Step 0=ON (init), Step 1=OFF, Step 2=ON, Step 3=OFF...
+                # Both modes: Index 0 = ON
                 self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
 
             # Generation callback
@@ -424,22 +424,49 @@ class NoobAIEngine:
                 if dora_toggle_mode and self.enable_dora and self.dora_loaded and self.pipe is not None:
                     # Callback runs AFTER step_index N completes, sets state for step_index N+1
                     # step_index is 0-indexed: 0, 1, 2, ..., 29 (for 30 steps)
-                    # Pattern: Step 0:ON, Step 1:OFF, Step 2:ON, Step 3:OFF...
-                    # Even step indices = ON, Odd step indices = OFF
                     next_step_index = step_index + 1
 
-                    if next_step_index < steps:  # Don't set state after last step
-                        if next_step_index % 2 == 0:  # Next is even - turn ON
-                            self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
+                    if dora_toggle_mode == "standard":
+                        # Standard: ON,OFF,ON,OFF throughout all steps
+                        # Even indices = ON, Odd indices = OFF
+                        if next_step_index < steps:
+                            if next_step_index % 2 == 0:  # Next is even - turn ON
+                                self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
+                                current_state = "ON" if step_index % 2 == 0 else "OFF"
+                                desc = f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: ON, ETA: {eta:.1f}s)"
+                            else:  # Next is odd - turn OFF
+                                self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
+                                current_state = "ON" if step_index % 2 == 0 else "OFF"
+                                desc = f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: OFF, ETA: {eta:.1f}s)"
+                        else:
                             current_state = "ON" if step_index % 2 == 0 else "OFF"
-                            desc = f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: ON, ETA: {eta:.1f}s)"
-                        else:  # Next is odd - turn OFF
-                            self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
-                            current_state = "ON" if step_index % 2 == 0 else "OFF"
-                            desc = f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: OFF, ETA: {eta:.1f}s)"
-                    else:
-                        current_state = "ON" if step_index % 2 == 0 else "OFF"
-                        desc = f"Step {current_step}/{steps} (DoRA: {current_state}, final, ETA: {eta:.1f}s)"
+                            desc = f"Step {current_step}/{steps} (DoRA: {current_state}, final, ETA: {eta:.1f}s)"
+
+                    elif dora_toggle_mode == "smart":
+                        # Smart: ON,OFF,ON,OFF through index 19, then ON from index 20 onwards
+                        if next_step_index < steps:
+                            if next_step_index <= 19:
+                                # Alternating phase (indices 0-19)
+                                if next_step_index % 2 == 0:  # Next is even - turn ON
+                                    self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
+                                    current_state = "ON" if step_index % 2 == 0 else "OFF"
+                                    desc = f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: ON, ETA: {eta:.1f}s)"
+                                else:  # Next is odd - turn OFF
+                                    self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
+                                    current_state = "ON" if step_index % 2 == 0 else "OFF"
+                                    desc = f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: OFF, ETA: {eta:.1f}s)"
+                            else:
+                                # Always ON phase (index 20+)
+                                self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
+                                current_state = "ON"
+                                desc = f"Step {current_step}/{steps} (DoRA: {current_state} [smart-locked], next[{next_step_index}]: ON, ETA: {eta:.1f}s)"
+                        else:
+                            # Final step
+                            if step_index <= 19:
+                                current_state = "ON" if step_index % 2 == 0 else "OFF"
+                            else:
+                                current_state = "ON"  # Always ON from index 20+
+                            desc = f"Step {current_step}/{steps} (DoRA: {current_state}, final, ETA: {eta:.1f}s)"
                 # Handle DoRA start step control (normal mode)
                 elif self.enable_dora and self.dora_loaded and self.pipe is not None:
                     if current_step == self.dora_start_step - 1 and self.dora_start_step > 1:
@@ -482,8 +509,10 @@ class NoobAIEngine:
                     dora_name = os.path.basename(self.dora_path) if self.dora_path else "DoRA"
                     if self.enable_dora:
                         dora_info = f"🎯 DoRA: {dora_name} (strength: {self.adapter_strength}"
-                        if dora_toggle_mode:
-                            dora_info += ", toggle: ON,OFF,ON,OFF..."
+                        if dora_toggle_mode == "standard":
+                            dora_info += ", toggle: ON,OFF throughout"
+                        elif dora_toggle_mode == "smart":
+                            dora_info += ", smart toggle: ON,OFF to step 20, then ON"
                         elif self.dora_start_step > 1:
                             dora_info += f", starts at step {self.dora_start_step}"
                         dora_info += ")"
@@ -516,11 +545,11 @@ class NoobAIEngine:
                     if self.enable_dora:
                         metadata["adapter_strength"] = str(self.adapter_strength)
                         metadata["dora_start_step"] = str(self.dora_start_step)
-                        metadata["dora_toggle_mode"] = str(dora_toggle_mode).lower()
+                        metadata["dora_toggle_mode"] = dora_toggle_mode if dora_toggle_mode else "none"
                     else:
                         metadata["adapter_strength"] = "0.0"
                         metadata["dora_start_step"] = "1"
-                        metadata["dora_toggle_mode"] = "false"
+                        metadata["dora_toggle_mode"] = "none"
 
                 image.info = metadata
 

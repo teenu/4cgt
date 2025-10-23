@@ -255,11 +255,12 @@ def create_interface() -> gr.Blocks:
                                 visible=default_enable_dora
                             )
 
-                            dora_toggle_mode = gr.Checkbox(
-                                label="🔄 Enable DoRA Toggle Mode",
-                                value=False,
+                            dora_toggle_mode = gr.Radio(
+                                label="🔄 DoRA Toggle Mode",
+                                choices=[("None", None), ("Standard Toggle", "standard"), ("Smart Toggle", "smart")],
+                                value=None,
                                 visible=default_enable_dora,
-                                info="Alternate ON,OFF,ON,OFF for improved anatomical accuracy"
+                                info="Standard: ON,OFF throughout. Smart: ON,OFF to step 20, then ON"
                             )
 
                     steps = gr.Slider(
@@ -456,15 +457,16 @@ def create_interface() -> gr.Blocks:
             outputs=[adapter_strength, adapter_status, dora_start_step, dora_start_step_status, dora_toggle_mode]
         )
 
-        # Toggle mode handler - disable start step when toggle mode is active
-        def handle_toggle_mode_change(toggle_enabled):
+        # Toggle mode handler - disable start step when any toggle mode is active
+        def handle_toggle_mode_change(toggle_mode):
             """Disable DoRA start step when toggle mode is enabled."""
-            if toggle_enabled:
+            if toggle_mode:  # Any toggle mode selected (standard or smart)
+                mode_name = "Standard" if toggle_mode == "standard" else "Smart"
                 return (
                     gr.update(interactive=False, value=1),  # Reset and disable start step
-                    gr.update(value='<div style="color: gray;">⚪ Disabled (toggle mode active)</div>')
+                    gr.update(value=f'<div style="color: gray;">⚪ Disabled ({mode_name} toggle active)</div>')
                 )
-            else:
+            else:  # None selected
                 return (
                     gr.update(interactive=True),
                     gr.update(value='<div style="color: green;">✅ Start at step 1</div>')
@@ -608,7 +610,7 @@ def create_interface() -> gr.Blocks:
                 False,
                 OPTIMAL_SETTINGS['width'],
                 OPTIMAL_SETTINGS['height'],
-                False,  # Reset toggle mode to disabled
+                None,  # Reset toggle mode to None
                 cfg_updater(OPTIMAL_SETTINGS['cfg_scale']),
                 steps_updater(OPTIMAL_SETTINGS['steps']),
                 rescale_updater(OPTIMAL_SETTINGS['rescale_cfg']),

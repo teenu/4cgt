@@ -408,7 +408,7 @@ def start_generation() -> Tuple[gr.update, gr.update]:
 def generate_image_with_progress(
     prompt: str, negative_prompt: str, resolution: str, cfg_scale: float, steps: int,
     rescale_cfg: float, seed: str, use_custom_resolution: bool, custom_width: int,
-    custom_height: int, auto_randomize_seed: bool, adapter_strength: float, enable_dora: bool, dora_start_step: int, dora_toggle_mode: bool, progress=gr.Progress()
+    custom_height: int, auto_randomize_seed: bool, adapter_strength: float, enable_dora: bool, dora_start_step: int, dora_toggle_mode: Optional[str], progress=gr.Progress()
 ) -> Tuple[Optional[str], str, str]:
     """Generate image with progress tracking and return file path for hash consistency."""
     try:
@@ -461,7 +461,7 @@ def generate_image_with_progress(
             adapter_strength=adapter_strength if enable_dora else None,
             enable_dora=enable_dora,
             dora_start_step=dora_start_step if enable_dora else None,
-            dora_toggle_mode=dora_toggle_mode if enable_dora else False,
+            dora_toggle_mode=dora_toggle_mode if enable_dora else None,
             progress_callback=lambda p, d: progress(p, desc=d)
         )
 
