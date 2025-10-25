@@ -60,8 +60,12 @@ def validate_model_path(path: str) -> Tuple[bool, str]:
 
         return True, normalized_path
 
-    except Exception as e:
+    except (IOError, OSError) as e:
+        return False, f"Path access error: {str(e)}"
+    except (ValueError, TypeError) as e:
         return False, f"Path validation error: {str(e)}"
+    except Exception as e:
+        return False, f"Unexpected error validating path: {str(e)}"
 
 def get_safe_csv_paths() -> Dict[str, str]:
     """Get validated CSV file paths with security checks."""
@@ -152,8 +156,12 @@ def validate_dora_path(path: str) -> Tuple[bool, str]:
 
         return True, normalized_path
 
-    except Exception as e:
+    except (IOError, OSError) as e:
+        return False, f"DoRA file access error: {str(e)}"
+    except (ValueError, TypeError) as e:
         return False, f"DoRA path validation error: {str(e)}"
+    except Exception as e:
+        return False, f"Unexpected error validating DoRA path: {str(e)}"
 
 def detect_base_model_precision(model_path: str) -> torch.dtype:
     """Detect the native precision using lightweight header analysis (400x faster)."""
@@ -180,8 +188,14 @@ def detect_base_model_precision(model_path: str) -> torch.dtype:
         logger.info("Using BF16 as default for SDXL model")
         return torch.bfloat16
 
+    except (IOError, OSError) as e:
+        logger.warning(f"Could not read model file for precision detection: {e}")
+        return torch.bfloat16
+    except (json.JSONDecodeError, KeyError, ValueError) as e:
+        logger.warning(f"Could not parse model header for precision detection: {e}")
+        return torch.bfloat16
     except Exception as e:
-        logger.warning(f"Could not detect base model precision from header: {e}")
+        logger.warning(f"Unexpected error detecting base model precision: {e}")
         return torch.bfloat16
 
 def detect_adapter_precision(adapter_path: str) -> str:
@@ -240,8 +254,10 @@ def discover_dora_adapters() -> List[Dict[str, Any]]:
                     'display_name': f"{adapter_name} ({format_file_size(file_size)}, {precision})"
                 })
 
+        except (IOError, OSError, PermissionError) as e:
+            logger.warning(f"Error accessing directory {search_dir}: {e}")
         except Exception as e:
-            logger.warning(f"Error scanning directory {search_dir}: {e}")
+            logger.warning(f"Unexpected error scanning directory {search_dir}: {e}")
 
     # Sort by name for consistent ordering
     adapters.sort(key=lambda x: x['name'])

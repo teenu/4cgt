@@ -11,7 +11,7 @@ import gc
 import time
 import gradio as gr
 from threading import Lock
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Dict, Any
 from config import (
     logger, MODEL_CONFIG, GEN_CONFIG, SEARCH_CONFIG, OPTIMAL_SETTINGS,
     OUTPUT_DIR, MODEL_SEARCH_PATHS, InvalidParameterError, GenerationInterruptedError
@@ -38,7 +38,7 @@ _engine_lock = Lock()
 # UI HELPER FUNCTIONS
 # ============================================================================
 
-def search_for_autocomplete(query: str, data_type: str) -> gr.update:
+def search_for_autocomplete(query: str, data_type: str) -> Dict[str, Any]:
     """Handle autocomplete search."""
     try:
         if not query or len(query.strip()) < SEARCH_CONFIG.MIN_QUERY_LENGTH:
@@ -48,8 +48,11 @@ def search_for_autocomplete(query: str, data_type: str) -> gr.update:
         choices = [f"{'🔴' if r['source'] == 'danbooru' else '🔵'} {r['display']}" for r in results]
         return gr.update(choices=choices, value=choices[0] if choices else None)
 
+    except (AttributeError, KeyError, ValueError) as e:
+        logger.error(f"Error in {data_type} search (data error): {e}")
+        return gr.update(choices=[], value=None)
     except Exception as e:
-        logger.error(f"Error in {data_type} search: {e}")
+        logger.error(f"Unexpected error in {data_type} search: {e}")
         return gr.update(choices=[], value=None)
 
 def select_from_dropdown(search_query: str, selected_choice: str, data_type: str) -> str:
@@ -72,8 +75,11 @@ def select_from_dropdown(search_query: str, selected_choice: str, data_type: str
 
         return clean_trigger
 
+    except (AttributeError, KeyError, IndexError) as e:
+        logger.error(f"Error in {data_type} selection (data error): {e}")
+        return selected_choice or ""
     except Exception as e:
-        logger.error(f"Error in {data_type} selection: {e}")
+        logger.error(f"Unexpected error in {data_type} selection: {e}")
         return selected_choice or ""
 
 def compose_final_prompt(prefix: str, character: str, artist: str, custom: str) -> str:
@@ -314,10 +320,20 @@ def initialize_engine(model_path: str, enable_dora: bool = False, dora_path: str
 
             return status_msg
 
+        except (IOError, OSError) as e:
+            engine = None
+            error_msg = get_user_friendly_error(e)
+            logger.error(f"Engine initialization failed (file error): {e}")
+            return f"❌ Initialization failed: {error_msg}"
+        except (RuntimeError, ValueError) as e:
+            engine = None
+            error_msg = get_user_friendly_error(e)
+            logger.error(f"Engine initialization failed (runtime/validation error): {e}")
+            return f"❌ Initialization failed: {error_msg}"
         except Exception as e:
             engine = None
             error_msg = get_user_friendly_error(e)
-            logger.error(f"Engine initialization failed: {e}")
+            logger.error(f"Unexpected error during engine initialization: {e}")
             return f"❌ Initialization failed: {error_msg}"
 
 def find_model_path() -> Optional[str]:
@@ -497,15 +513,24 @@ def generate_image_with_progress(
 
         return output_path, info, str(final_seed)
 
+    except GenerationInterruptedError:
+        state_manager.set_state(GenerationState.INTERRUPTED)
+        return None, "⚠️ Generation interrupted", seed
+    except (IOError, OSError) as e:
+        state_manager.set_state(GenerationState.ERROR)
+        error_msg = get_user_friendly_error(e)
+        logger.error(f"Generation failed (file error): {e}")
+        return None, f"❌ Generation failed: {error_msg}", seed
+    except (RuntimeError, ValueError) as e:
+        state_manager.set_state(GenerationState.ERROR)
+        error_msg = get_user_friendly_error(e)
+        logger.error(f"Generation failed (runtime/validation error): {e}")
+        return None, f"❌ Generation failed: {error_msg}", seed
     except Exception as e:
-        if isinstance(e, GenerationInterruptedError):
-            state_manager.set_state(GenerationState.INTERRUPTED)
-            return None, "⚠️ Generation interrupted", seed
-        else:
-            state_manager.set_state(GenerationState.ERROR)
-            error_msg = get_user_friendly_error(e)
-            logger.error(f"Generation error: {e}")
-            return None, f"❌ Generation failed: {error_msg}", seed
+        state_manager.set_state(GenerationState.ERROR)
+        error_msg = get_user_friendly_error(e)
+        logger.error(f"Unexpected error during generation: {e}")
+        return None, f"❌ Generation failed: {error_msg}", seed
 
 def finish_generation() -> Tuple[gr.update, gr.update]:
     """Finish generation UI update."""

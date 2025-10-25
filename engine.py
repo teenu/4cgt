@@ -13,7 +13,7 @@ import torch
 from diffusers import StableDiffusionXLPipeline, EulerDiscreteScheduler
 from PIL import Image
 from PIL import PngImagePlugin
-from typing import Optional, Tuple, Dict, Any, Callable
+from typing import Optional, Tuple, Dict, Any, Callable, List
 from config import (
     logger, MODEL_CONFIG, DEFAULT_NEGATIVE_PROMPT, OPTIMAL_SETTINGS,
     OFFICIAL_RESOLUTIONS, RECOMMENDED_RESOLUTIONS,
@@ -99,9 +99,13 @@ class NoobAIEngine:
                 if self.enable_dora:
                     self._load_dora_adapter()
 
-        except Exception as e:
+        except (IOError, OSError, RuntimeError, ValueError) as e:
             self.is_initialized = False
             logger.error(f"Failed to initialize engine: {e}")
+            raise
+        except Exception as e:
+            self.is_initialized = False
+            logger.error(f"Unexpected error during engine initialization: {e}")
             raise
 
     def _load_dora_adapter(self):
@@ -150,11 +154,17 @@ class NoobAIEngine:
             self.dora_loaded = True
             logger.info(f"DoRA adapter loaded successfully with {pipeline_dtype} precision")
 
+        except (IOError, OSError) as e:
+            logger.error(f"Failed to load DoRA adapter (file error): {e}")
+            self.dora_loaded = False
+        except (RuntimeError, ValueError) as e:
+            logger.error(f"Failed to load DoRA adapter (runtime/validation error): {e}")
+            self.dora_loaded = False
         except Exception as e:
-            logger.error(f"Failed to load DoRA adapter: {e}")
+            logger.error(f"Unexpected error loading DoRA adapter: {e}")
             self.dora_loaded = False
 
-    def unload_dora_adapter(self):
+    def unload_dora_adapter(self) -> None:
         """Completely unload DoRA adapter with full memory cleanup."""
         try:
             if self.dora_loaded and self.pipe is not None:
@@ -235,7 +245,7 @@ class NoobAIEngine:
             self.dora_path = None
             return False
 
-    def set_adapter_strength(self, strength: float):
+    def set_adapter_strength(self, strength: float) -> None:
         """Set DoRA adapter strength."""
         try:
             # Validate strength is in bounds
@@ -258,7 +268,7 @@ class NoobAIEngine:
         except Exception as e:
             logger.warning(f"Error setting adapter strength: {e}")
 
-    def set_dora_start_step(self, start_step: int):
+    def set_dora_start_step(self, start_step: int) -> None:
         """Set DoRA adapter start step."""
         try:
             # Validate start step is in bounds
@@ -272,7 +282,7 @@ class NoobAIEngine:
         except Exception as e:
             logger.warning(f"Error setting DoRA start step: {e}")
 
-    def set_dora_enabled(self, enabled: bool):
+    def set_dora_enabled(self, enabled: bool) -> None:
         """Dynamically enable/disable DoRA adapter."""
         try:
             if enabled:
@@ -315,6 +325,376 @@ class NoobAIEngine:
             'strength': self.adapter_strength if self.dora_loaded else 0.0,
             'start_step': self.dora_start_step
         }
+
+    def _parse_manual_dora_schedule(
+        self,
+        dora_toggle_mode: Optional[str],
+        dora_manual_schedule: Optional[str],
+        steps: int
+    ) -> Tuple[Optional[List[int]], Optional[str]]:
+        """
+        Parse manual DoRA schedule if manual toggle mode is selected.
+
+        Args:
+            dora_toggle_mode: Toggle mode ('manual', 'standard', 'smart', or None)
+            dora_manual_schedule: CSV string of 0/1 values
+            steps: Total number of generation steps
+
+        Returns:
+            Tuple of (parsed_schedule, warning_message)
+        """
+        if dora_toggle_mode != "manual":
+            return None, None
+
+        if not dora_manual_schedule:
+            logger.warning("Manual toggle mode selected but no schedule provided - DoRA will be OFF for all steps")
+            return None, None
+
+        from utils import parse_manual_dora_schedule
+        manual_schedule, manual_schedule_warning = parse_manual_dora_schedule(dora_manual_schedule, steps)
+
+        if manual_schedule_warning:
+            logger.warning(manual_schedule_warning)
+
+        logger.info(f"Manual DoRA schedule: {manual_schedule}")
+        logger.info("Manual mode active - dora_start_step setting is ignored")
+
+        return manual_schedule, manual_schedule_warning
+
+    def _enforce_toggle_mode_exclusivity(self, dora_toggle_mode: Optional[str]) -> None:
+        """
+        Enforce mutual exclusivity between toggle mode and start_step.
+        Toggle modes always start from step 1.
+
+        Args:
+            dora_toggle_mode: Toggle mode ('manual', 'standard', 'smart', or None)
+        """
+        if dora_toggle_mode and self.enable_dora and self.dora_loaded:
+            if self.dora_start_step > 1:
+                logger.warning(
+                    f"Toggle mode '{dora_toggle_mode}' enabled with dora_start_step={self.dora_start_step}. "
+                    f"Resetting start_step to 1."
+                )
+                self.dora_start_step = 1
+
+    def _setup_initial_dora_state(
+        self,
+        dora_toggle_mode: Optional[str],
+        manual_schedule: Optional[List[int]]
+    ) -> None:
+        """
+        Set up initial DoRA adapter state before generation starts.
+
+        Args:
+            dora_toggle_mode: Toggle mode ('manual', 'standard', 'smart', or None)
+            manual_schedule: Parsed manual schedule (if manual mode)
+        """
+        if not self.enable_dora or not self.dora_loaded or not self.pipe:
+            return
+
+        # Handle delayed activation (normal mode)
+        if self.dora_start_step > 1 and not dora_toggle_mode:
+            self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
+            return
+
+        # Handle toggle modes
+        if dora_toggle_mode:
+            if dora_toggle_mode == "manual":
+                # Manual mode: Set based on schedule index 0 (default OFF)
+                if manual_schedule and manual_schedule[0] == 1:
+                    self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
+                else:
+                    self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
+            else:
+                # Standard and Smart modes: Index 0 = ON
+                self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
+
+    def _build_generation_info(
+        self,
+        steps: int,
+        cfg_scale: float,
+        width: int,
+        height: int
+    ) -> List[str]:
+        """
+        Build informational messages about generation parameters.
+
+        Args:
+            steps: Number of generation steps
+            cfg_scale: CFG scale value
+            width: Image width
+            height: Image height
+
+        Returns:
+            List of info message strings
+        """
+        info_parts = []
+
+        # Check optimal ranges
+        if not (32 <= steps <= 40):
+            info_parts.append(f"⚠️ Steps {steps} outside optimal range 32-40")
+        if not (3.5 <= cfg_scale <= 5.5):
+            info_parts.append(f"⚠️ CFG {cfg_scale} outside optimal range 3.5-5.5")
+
+        # Check resolution
+        current_res = (height, width)
+        if current_res in RECOMMENDED_RESOLUTIONS:
+            info_parts.append(f"✅ Optimal resolution: {width}x{height}")
+        elif current_res in OFFICIAL_RESOLUTIONS:
+            info_parts.append(f"✅ Official resolution: {width}x{height}")
+        else:
+            info_parts.append(f"⚠️ Non-official resolution: {width}x{height}")
+
+        return info_parts
+
+    def _create_progress_callback(
+        self,
+        steps: int,
+        start_time: float,
+        dora_toggle_mode: Optional[str],
+        manual_schedule: Optional[List[int]],
+        progress_callback: Optional[Callable[[float, str], None]]
+    ) -> Callable:
+        """
+        Create the progress callback function for generation.
+
+        Args:
+            steps: Total number of generation steps
+            start_time: Generation start time
+            dora_toggle_mode: Toggle mode ('manual', 'standard', 'smart', or None)
+            manual_schedule: Parsed manual schedule (if manual mode)
+            progress_callback: User-provided progress callback
+
+        Returns:
+            Callback function for step_end events
+        """
+        def callback_on_step_end(pipe, step_index: int, timestep, callback_kwargs: Dict) -> Dict:
+            # Check for interruption
+            if state_manager.is_interrupted():
+                raise GenerationInterruptedError()
+
+            current_step = step_index + 1
+            progress = current_step / steps
+            elapsed = time.time() - start_time
+            eta = (elapsed / current_step) * (steps - current_step) if current_step > 0 else 0
+
+            # Build progress description
+            desc = self._build_progress_description(
+                step_index, current_step, steps, eta,
+                dora_toggle_mode, manual_schedule
+            )
+
+            # Call user callback
+            if progress_callback:
+                progress_callback(progress, desc)
+
+            return callback_kwargs
+
+        return callback_on_step_end
+
+    def _build_progress_description(
+        self,
+        step_index: int,
+        current_step: int,
+        steps: int,
+        eta: float,
+        dora_toggle_mode: Optional[str],
+        manual_schedule: Optional[List[int]]
+    ) -> str:
+        """
+        Build progress description string and update DoRA state for next step.
+
+        Args:
+            step_index: Current step index (0-based)
+            current_step: Current step number (1-based)
+            steps: Total steps
+            eta: Estimated time remaining
+            dora_toggle_mode: Toggle mode
+            manual_schedule: Manual schedule
+
+        Returns:
+            Progress description string
+        """
+        # Handle DoRA toggle modes
+        if dora_toggle_mode and self.enable_dora and self.dora_loaded and self.pipe:
+            next_step_index = step_index + 1
+
+            if dora_toggle_mode == "standard":
+                return self._handle_standard_toggle(step_index, current_step, steps, eta, next_step_index)
+            elif dora_toggle_mode == "smart":
+                return self._handle_smart_toggle(step_index, current_step, steps, eta, next_step_index)
+            elif dora_toggle_mode == "manual":
+                return self._handle_manual_toggle(
+                    step_index, current_step, steps, eta, next_step_index, manual_schedule
+                )
+
+        # Handle normal DoRA start step
+        elif self.enable_dora and self.dora_loaded and self.pipe:
+            if current_step == self.dora_start_step - 1 and self.dora_start_step > 1:
+                self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
+                return f"Step {current_step}/{steps} (DoRA will activate at step {self.dora_start_step}, ETA: {eta:.1f}s)"
+            elif current_step >= self.dora_start_step:
+                return f"Step {current_step}/{steps} (DoRA active, ETA: {eta:.1f}s)"
+            else:
+                return f"Step {current_step}/{steps} (DoRA starts at step {self.dora_start_step}, ETA: {eta:.1f}s)"
+
+        # No DoRA
+        return f"Step {current_step}/{steps} (ETA: {eta:.1f}s)"
+
+    def _handle_standard_toggle(
+        self, step_index: int, current_step: int, steps: int, eta: float, next_step_index: int
+    ) -> str:
+        """Handle standard toggle mode progress description."""
+        if next_step_index < steps:
+            current_state = "ON" if step_index % 2 == 0 else "OFF"
+            if next_step_index % 2 == 0:  # Next is even - turn ON
+                self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
+                return f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: ON, ETA: {eta:.1f}s)"
+            else:  # Next is odd - turn OFF
+                self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
+                return f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: OFF, ETA: {eta:.1f}s)"
+        else:
+            current_state = "ON" if step_index % 2 == 0 else "OFF"
+            return f"Step {current_step}/{steps} (DoRA: {current_state}, final, ETA: {eta:.1f}s)"
+
+    def _handle_smart_toggle(
+        self, step_index: int, current_step: int, steps: int, eta: float, next_step_index: int
+    ) -> str:
+        """Handle smart toggle mode progress description."""
+        if next_step_index < steps:
+            if next_step_index <= 19:
+                # Alternating phase (indices 0-19)
+                current_state = "ON" if step_index % 2 == 0 else "OFF"
+                if next_step_index % 2 == 0:  # Next is even - turn ON
+                    self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
+                    return f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: ON, ETA: {eta:.1f}s)"
+                else:  # Next is odd - turn OFF
+                    self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
+                    return f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: OFF, ETA: {eta:.1f}s)"
+            else:
+                # Always ON phase (index 20+)
+                self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
+                return f"Step {current_step}/{steps} (DoRA: ON [smart-locked], next[{next_step_index}]: ON, ETA: {eta:.1f}s)"
+        else:
+            # Final step
+            if step_index <= 19:
+                current_state = "ON" if step_index % 2 == 0 else "OFF"
+            else:
+                current_state = "ON"
+            return f"Step {current_step}/{steps} (DoRA: {current_state}, final, ETA: {eta:.1f}s)"
+
+    def _handle_manual_toggle(
+        self,
+        step_index: int,
+        current_step: int,
+        steps: int,
+        eta: float,
+        next_step_index: int,
+        manual_schedule: Optional[List[int]]
+    ) -> str:
+        """Handle manual toggle mode progress description."""
+        if not manual_schedule:
+            return f"Step {current_step}/{steps} (DoRA: OFF [no schedule], ETA: {eta:.1f}s)"
+
+        current_state = "ON" if manual_schedule[step_index] == 1 else "OFF"
+
+        if next_step_index < steps:
+            next_state = "ON" if manual_schedule[next_step_index] == 1 else "OFF"
+            # Set adapter for next step
+            if manual_schedule[next_step_index] == 1:
+                self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
+            else:
+                self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
+            return f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: {next_state}, ETA: {eta:.1f}s)"
+        else:
+            return f"Step {current_step}/{steps} (DoRA: {current_state}, final, ETA: {eta:.1f}s)"
+
+    def _add_dora_info_to_result(
+        self, info_parts: List[str], dora_toggle_mode: Optional[str], seed: int
+    ) -> None:
+        """
+        Add DoRA information to generation info.
+
+        Args:
+            info_parts: List to append info messages to
+            dora_toggle_mode: Toggle mode used
+            seed: Generation seed
+        """
+        info_parts.append(f"🌱 Generated with seed: {seed}")
+
+        if self.dora_loaded:
+            dora_name = os.path.basename(self.dora_path) if self.dora_path else "DoRA"
+            if self.enable_dora:
+                dora_info = f"🎯 DoRA: {dora_name} (strength: {self.adapter_strength}"
+                if dora_toggle_mode == "standard":
+                    dora_info += ", toggle: ON,OFF throughout"
+                elif dora_toggle_mode == "smart":
+                    dora_info += ", smart toggle: ON,OFF to step 20, then ON"
+                elif self.dora_start_step > 1:
+                    dora_info += f", starts at step {self.dora_start_step}"
+                dora_info += ")"
+                info_parts.append(dora_info)
+            else:
+                info_parts.append(f"⚪ DoRA: {dora_name} (disabled)")
+        elif self.dora_path:
+            info_parts.append("⚠️ DoRA: Available but not loaded")
+
+    def _create_image_metadata(
+        self,
+        prompt: str,
+        negative_prompt: str,
+        seed: int,
+        width: int,
+        height: int,
+        steps: int,
+        cfg_scale: float,
+        rescale_cfg: float,
+        dora_toggle_mode: Optional[str]
+    ) -> Dict[str, str]:
+        """
+        Create image metadata dictionary.
+
+        Args:
+            prompt: Positive prompt
+            negative_prompt: Negative prompt
+            seed: Generation seed
+            width: Image width
+            height: Image height
+            steps: Number of steps
+            cfg_scale: CFG scale
+            rescale_cfg: Rescale CFG
+            dora_toggle_mode: Toggle mode
+
+        Returns:
+            Metadata dictionary
+        """
+        metadata = {
+            "prompt": prompt,
+            "negative_prompt": negative_prompt,
+            "seed": str(seed),
+            "width": str(width),
+            "height": str(height),
+            "steps": str(steps),
+            "cfg_scale": str(cfg_scale),
+            "rescale_cfg": str(rescale_cfg),
+            "model": "NoobAI-XL-Vpred-v1.0",
+            "scheduler": "EulerDiscreteScheduler"
+        }
+
+        # Add DoRA metadata
+        if self.dora_loaded:
+            metadata["dora_enabled"] = str(self.enable_dora).lower()
+            metadata["dora_path"] = os.path.basename(self.dora_path) if self.dora_path else "unknown"
+            if self.enable_dora:
+                metadata["adapter_strength"] = str(self.adapter_strength)
+                metadata["dora_start_step"] = str(self.dora_start_step)
+                metadata["dora_toggle_mode"] = dora_toggle_mode if dora_toggle_mode else "none"
+            else:
+                metadata["adapter_strength"] = "0.0"
+                metadata["dora_start_step"] = "1"
+                metadata["dora_toggle_mode"] = "none"
+
+        return metadata
 
     def save_image_standardized(self, image: Image.Image, output_path: str,
                                include_metadata: bool = True) -> str:
@@ -359,175 +739,68 @@ class NoobAIEngine:
         dora_manual_schedule: Optional[str] = None,
         progress_callback: Optional[Callable[[float, str], None]] = None
     ) -> Tuple[Image.Image, int, str]:
-        """Generate an image with the specified parameters."""
+        """
+        Generate an image with the specified parameters.
+
+        Args:
+            prompt: Positive prompt text
+            negative_prompt: Negative prompt text
+            width: Image width in pixels
+            height: Image height in pixels
+            steps: Number of inference steps
+            cfg_scale: Classifier-free guidance scale
+            rescale_cfg: CFG rescale factor
+            seed: Random seed (None for random)
+            adapter_strength: DoRA adapter strength
+            enable_dora: Enable/disable DoRA
+            dora_start_step: Step at which DoRA activates
+            dora_toggle_mode: Toggle mode ('standard', 'smart', 'manual', or None)
+            dora_manual_schedule: CSV schedule for manual mode
+            progress_callback: Callback for progress updates
+
+        Returns:
+            Tuple of (generated_image, used_seed, info_string)
+
+        Raises:
+            EngineNotInitializedError: If engine is not initialized
+            GenerationInterruptedError: If generation is interrupted
+        """
         if not self.is_initialized:
             raise EngineNotInitializedError("NoobAI engine is not initialized")
 
-        # Handle dynamic DoRA enable/disable state
+        # Apply dynamic DoRA settings
         if enable_dora is not None:
             self.set_dora_enabled(enable_dora)
-
-        # Apply adapter strength if DoRA is enabled and strength is provided
         if adapter_strength is not None and self.enable_dora and self.dora_loaded:
             self.set_adapter_strength(adapter_strength)
-
-        # Apply DoRA start step if provided
         if dora_start_step is not None:
             self.set_dora_start_step(dora_start_step)
 
         with perf_monitor.time_section("image_generation"):
-            # Build info message
-            info_parts = []
-            if not (32 <= steps <= 40):
-                info_parts.append(f"⚠️ Steps {steps} outside optimal range 32-40")
-            if not (3.5 <= cfg_scale <= 5.5):
-                info_parts.append(f"⚠️ CFG {cfg_scale} outside optimal range 3.5-5.5")
+            # Build generation info
+            info_parts = self._build_generation_info(steps, cfg_scale, width, height)
 
-            current_res = (height, width)
-            if current_res in RECOMMENDED_RESOLUTIONS:
-                info_parts.append(f"✅ Optimal resolution: {width}x{height}")
-            elif current_res in OFFICIAL_RESOLUTIONS:
-                info_parts.append(f"✅ Official resolution: {width}x{height}")
-            else:
-                info_parts.append(f"⚠️ Non-official resolution: {width}x{height}")
-
-            # Set up seed
+            # Setup seed and generator
             if seed is None:
                 seed = random.randint(0, 2**32 - 1)
             generator = torch.Generator(self._device).manual_seed(seed)
 
-            # Parse manual DoRA schedule if provided
-            manual_schedule = None
-            manual_schedule_warning = None
-            if dora_toggle_mode == "manual":
-                if dora_manual_schedule:
-                    from utils import parse_manual_dora_schedule
-                    manual_schedule, manual_schedule_warning = parse_manual_dora_schedule(dora_manual_schedule, steps)
-                    if manual_schedule_warning:
-                        logger.warning(manual_schedule_warning)
-                    logger.info(f"Manual DoRA schedule: {manual_schedule}")
-                    logger.info("Manual mode active - dora_start_step setting is ignored")
-                else:
-                    logger.warning("Manual toggle mode selected but no schedule provided - DoRA will be OFF for all steps")
+            # Parse manual DoRA schedule
+            manual_schedule, _ = self._parse_manual_dora_schedule(
+                dora_toggle_mode, dora_manual_schedule, steps
+            )
 
-            # Enforce toggle mode and start step mutual exclusivity
-            if dora_toggle_mode and self.enable_dora and self.dora_loaded:
-                if self.dora_start_step > 1:
-                    logger.warning(f"Toggle mode '{dora_toggle_mode}' enabled with dora_start_step={self.dora_start_step}. Resetting start_step to 1.")
-                    self.dora_start_step = 1
+            # Enforce toggle mode exclusivity
+            self._enforce_toggle_mode_exclusivity(dora_toggle_mode)
 
-            # Pre-deactivate DoRA if start step is later than step 1
-            # This ensures DoRA is inactive from the beginning when delayed activation is requested
-            if self.enable_dora and self.dora_loaded and self.dora_start_step > 1 and not dora_toggle_mode:
-                self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
+            # Setup initial DoRA state
+            self._setup_initial_dora_state(dora_toggle_mode, manual_schedule)
 
-            # For toggle mode, set initial DoRA state based on mode
-            if dora_toggle_mode and self.enable_dora and self.dora_loaded:
-                if dora_toggle_mode == "manual":
-                    # Manual mode: Set based on index 0 of schedule (default OFF if no schedule)
-                    if manual_schedule and manual_schedule[0] == 1:
-                        self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
-                    else:
-                        self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
-                else:
-                    # Standard and Smart modes: Index 0 = ON
-                    self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
-
-            # Generation callback
+            # Create progress callback
             start_time = time.time()
-            def callback_on_step_end(pipe, step_index, timestep, callback_kwargs):
-                if state_manager.is_interrupted():
-                    raise GenerationInterruptedError()
-
-                current_step = step_index + 1
-                progress = current_step / steps
-                elapsed = time.time() - start_time
-                eta = (elapsed / current_step) * (steps - current_step) if current_step > 0 else 0
-
-                # Handle DoRA toggle mode - alternate ON/OFF for improved anatomical accuracy
-                if dora_toggle_mode and self.enable_dora and self.dora_loaded and self.pipe is not None:
-                    # Callback runs AFTER step_index N completes, sets state for step_index N+1
-                    # step_index is 0-indexed: 0, 1, 2, ..., 29 (for 30 steps)
-                    next_step_index = step_index + 1
-
-                    if dora_toggle_mode == "standard":
-                        # Standard: ON,OFF,ON,OFF throughout all steps
-                        # Even indices = ON, Odd indices = OFF
-                        if next_step_index < steps:
-                            if next_step_index % 2 == 0:  # Next is even - turn ON
-                                self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
-                                current_state = "ON" if step_index % 2 == 0 else "OFF"
-                                desc = f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: ON, ETA: {eta:.1f}s)"
-                            else:  # Next is odd - turn OFF
-                                self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
-                                current_state = "ON" if step_index % 2 == 0 else "OFF"
-                                desc = f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: OFF, ETA: {eta:.1f}s)"
-                        else:
-                            current_state = "ON" if step_index % 2 == 0 else "OFF"
-                            desc = f"Step {current_step}/{steps} (DoRA: {current_state}, final, ETA: {eta:.1f}s)"
-
-                    elif dora_toggle_mode == "smart":
-                        # Smart: ON,OFF,ON,OFF through index 19, then ON from index 20 onwards
-                        if next_step_index < steps:
-                            if next_step_index <= 19:
-                                # Alternating phase (indices 0-19)
-                                if next_step_index % 2 == 0:  # Next is even - turn ON
-                                    self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
-                                    current_state = "ON" if step_index % 2 == 0 else "OFF"
-                                    desc = f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: ON, ETA: {eta:.1f}s)"
-                                else:  # Next is odd - turn OFF
-                                    self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
-                                    current_state = "ON" if step_index % 2 == 0 else "OFF"
-                                    desc = f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: OFF, ETA: {eta:.1f}s)"
-                            else:
-                                # Always ON phase (index 20+)
-                                self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
-                                current_state = "ON"
-                                desc = f"Step {current_step}/{steps} (DoRA: {current_state} [smart-locked], next[{next_step_index}]: ON, ETA: {eta:.1f}s)"
-                        else:
-                            # Final step
-                            if step_index <= 19:
-                                current_state = "ON" if step_index % 2 == 0 else "OFF"
-                            else:
-                                current_state = "ON"  # Always ON from index 20+
-                            desc = f"Step {current_step}/{steps} (DoRA: {current_state}, final, ETA: {eta:.1f}s)"
-
-                    elif dora_toggle_mode == "manual":
-                        # Manual: Use custom schedule from user grid
-                        if manual_schedule:
-                            # Get current and next state from schedule
-                            current_state = "ON" if manual_schedule[step_index] == 1 else "OFF"
-
-                            if next_step_index < steps:
-                                next_state = "ON" if manual_schedule[next_step_index] == 1 else "OFF"
-                                # Set adapter for next step
-                                if manual_schedule[next_step_index] == 1:
-                                    self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
-                                else:
-                                    self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
-                                desc = f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: {next_state}, ETA: {eta:.1f}s)"
-                            else:
-                                # Final step
-                                desc = f"Step {current_step}/{steps} (DoRA: {current_state}, final, ETA: {eta:.1f}s)"
-                        else:
-                            # No schedule - keep DoRA OFF
-                            desc = f"Step {current_step}/{steps} (DoRA: OFF [no schedule], ETA: {eta:.1f}s)"
-                # Handle DoRA start step control (normal mode)
-                elif self.enable_dora and self.dora_loaded and self.pipe is not None:
-                    if current_step == self.dora_start_step - 1 and self.dora_start_step > 1:
-                        # Activate DoRA adapter before the target step
-                        self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.adapter_strength])
-                        desc = f"Step {current_step}/{steps} (DoRA will activate at step {self.dora_start_step}, ETA: {eta:.1f}s)"
-                    elif current_step >= self.dora_start_step:
-                        desc = f"Step {current_step}/{steps} (DoRA active, ETA: {eta:.1f}s)"
-                    else:
-                        desc = f"Step {current_step}/{steps} (DoRA starts at step {self.dora_start_step}, ETA: {eta:.1f}s)"
-                else:
-                    desc = f"Step {current_step}/{steps} (ETA: {eta:.1f}s)"
-
-                if progress_callback:
-                    progress_callback(progress, desc)
-                return callback_kwargs
+            callback_on_step_end = self._create_progress_callback(
+                steps, start_time, dora_toggle_mode, manual_schedule, progress_callback
+            )
 
             try:
                 # Generate image
@@ -547,55 +820,17 @@ class NoobAIEngine:
                         callback_on_step_end_tensor_inputs=["latents"]
                     )
 
-                info_parts.append(f"🌱 Generated with seed: {seed}")
+                # Add DoRA info to result
+                self._add_dora_info_to_result(info_parts, dora_toggle_mode, seed)
 
-                # Add DoRA information to info
-                if self.dora_loaded:
-                    dora_name = os.path.basename(self.dora_path) if self.dora_path else "DoRA"
-                    if self.enable_dora:
-                        dora_info = f"🎯 DoRA: {dora_name} (strength: {self.adapter_strength}"
-                        if dora_toggle_mode == "standard":
-                            dora_info += ", toggle: ON,OFF throughout"
-                        elif dora_toggle_mode == "smart":
-                            dora_info += ", smart toggle: ON,OFF to step 20, then ON"
-                        elif self.dora_start_step > 1:
-                            dora_info += f", starts at step {self.dora_start_step}"
-                        dora_info += ")"
-                        info_parts.append(dora_info)
-                    else:
-                        info_parts.append(f"⚪ DoRA: {dora_name} (disabled)")
-                elif self.dora_path:  # DoRA file exists but not loaded
-                    info_parts.append("⚠️ DoRA: Available but not loaded")
-
+                # Get generated image
                 image = result.images[0]
 
-                # Add metadata
-                metadata = {
-                    "prompt": prompt,
-                    "negative_prompt": negative_prompt,
-                    "seed": str(seed),
-                    "width": str(width),
-                    "height": str(height),
-                    "steps": str(steps),
-                    "cfg_scale": str(cfg_scale),
-                    "rescale_cfg": str(rescale_cfg),
-                    "model": "NoobAI-XL-Vpred-v1.0",
-                    "scheduler": "EulerDiscreteScheduler"
-                }
-
-                # Add DoRA information to metadata
-                if self.dora_loaded:
-                    metadata["dora_enabled"] = str(self.enable_dora).lower()
-                    metadata["dora_path"] = os.path.basename(self.dora_path) if self.dora_path else "unknown"
-                    if self.enable_dora:
-                        metadata["adapter_strength"] = str(self.adapter_strength)
-                        metadata["dora_start_step"] = str(self.dora_start_step)
-                        metadata["dora_toggle_mode"] = dora_toggle_mode if dora_toggle_mode else "none"
-                    else:
-                        metadata["adapter_strength"] = "0.0"
-                        metadata["dora_start_step"] = "1"
-                        metadata["dora_toggle_mode"] = "none"
-
+                # Create and attach metadata
+                metadata = self._create_image_metadata(
+                    prompt, negative_prompt, seed, width, height,
+                    steps, cfg_scale, rescale_cfg, dora_toggle_mode
+                )
                 image.info = metadata
 
                 return image, seed, "\n".join(info_parts)
@@ -603,7 +838,7 @@ class NoobAIEngine:
             finally:
                 self.clear_memory()
 
-    def teardown_engine(self):
+    def teardown_engine(self) -> None:
         """Comprehensive engine teardown with full resource cleanup."""
         try:
             logger.info("Performing comprehensive engine teardown")
@@ -682,7 +917,7 @@ class NoobAIEngine:
             except Exception as e:
                 logger.error(f"Critical error in teardown finally block: {e}")
 
-    def clear_memory(self):
+    def clear_memory(self) -> None:
         """Clear GPU/memory caches."""
         try:
             if self._device == "mps":
