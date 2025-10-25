@@ -405,7 +405,8 @@ class NoobAIEngine:
                     manual_schedule, manual_schedule_warning = parse_manual_dora_schedule(dora_manual_schedule, steps)
                     if manual_schedule_warning:
                         logger.warning(manual_schedule_warning)
-                    logger.info(f"Parsed manual DoRA schedule: {manual_schedule}")
+                    logger.info(f"Manual DoRA schedule: {manual_schedule}")
+                    logger.info("Manual mode active - dora_start_step setting is ignored")
                 else:
                     logger.warning("Manual toggle mode selected but no schedule provided - DoRA will be OFF for all steps")
 

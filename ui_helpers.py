@@ -451,9 +451,13 @@ def generate_image_with_progress(
 
         # Debug: Log DoRA settings
         if enable_dora:
-            logger.info(f"DoRA enabled: toggle_mode={dora_toggle_mode}, start_step={dora_start_step}")
             if dora_toggle_mode == "manual":
-                logger.info(f"Manual DoRA schedule: {dora_manual_schedule}")
+                logger.info(f"DoRA enabled: toggle_mode=manual")
+                logger.info(f"Manual DoRA schedule CSV: {dora_manual_schedule}")
+            elif dora_toggle_mode:
+                logger.info(f"DoRA enabled: toggle_mode={dora_toggle_mode}")
+            else:
+                logger.info(f"DoRA enabled: normal mode, start_step={dora_start_step}")
 
         image, final_seed, info = engine.generate(
             prompt=prompt,
