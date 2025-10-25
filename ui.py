@@ -11,7 +11,7 @@ from config import (
     GEN_CONFIG, MODEL_CONFIG, DEFAULT_POSITIVE_PREFIX, DEFAULT_NEGATIVE_PROMPT
 )
 from ui_helpers import (
-    engine, auto_initialize, get_dora_ui_state, initialize_engine,
+    is_engine_ready, auto_initialize, get_dora_ui_state, initialize_engine,
     create_search_ui, connect_search_events, create_clear_handler,
     create_status_updater, compose_final_prompt, start_generation,
     generate_image_with_progress, finish_generation, interrupt_generation
@@ -24,7 +24,7 @@ from ui_helpers import (
 def create_interface() -> gr.Blocks:
     """Create the Gradio interface."""
     init_status, default_model_path, default_enable_dora, default_dora_path, default_adapter_selection = auto_initialize()
-    is_ready = engine is not None and engine.is_initialized
+    is_ready = is_engine_ready()
 
     # Get smart DoRA UI state
     dora_ui_state = get_dora_ui_state()
@@ -421,18 +421,19 @@ def create_interface() -> gr.Blocks:
         # DoRA refresh handler with comprehensive UI updates
         def refresh_dora_adapters():
             """Enhanced refresh with conditional UI updates for both checkbox and dropdown."""
-            from ui_helpers import engine
+            from ui_helpers import get_engine_safely
 
             # Get fresh adapter state
             dora_ui_state = get_dora_ui_state()
 
-            # Get current engine settings if engine exists
+            # Get current engine settings if engine exists (thread-safe)
             current_settings = None
-            if engine is not None and engine.is_initialized:
+            current_engine = get_engine_safely()
+            if current_engine is not None and current_engine.is_initialized:
                 current_settings = {
-                    'model_path': engine.model_path,
-                    'enable_dora': engine.enable_dora,
-                    'adapter_strength': engine.adapter_strength
+                    'model_path': current_engine.model_path,
+                    'enable_dora': current_engine.enable_dora,
+                    'adapter_strength': current_engine.adapter_strength
                 }
 
             # Add re-initialization suggestion if engine was using DoRA
@@ -473,10 +474,10 @@ def create_interface() -> gr.Blocks:
         # Engine initialization
         def init_and_update(path, enable_dora_val, dora_path_val, dora_selection_val):
             """Enhanced initialization with teardown feedback."""
-            from ui_helpers import engine
+            from ui_helpers import get_engine_safely, is_engine_ready
 
-            # Provide teardown feedback if engine exists
-            if engine is not None:
+            # Provide teardown feedback if engine exists (thread-safe check)
+            if get_engine_safely() is not None:
                 # Show teardown progress
                 teardown_status = "🔄 Performing comprehensive engine teardown..."
                 yield (
@@ -488,8 +489,7 @@ def create_interface() -> gr.Blocks:
 
             # Perform initialization with comprehensive teardown
             status = initialize_engine(path, enable_dora_val, dora_path_val, dora_selection_val)
-            from ui_helpers import engine
-            ready = engine is not None and engine.is_initialized
+            ready = is_engine_ready()
 
             # Final status update
             final_status = (
@@ -506,7 +506,7 @@ def create_interface() -> gr.Blocks:
                 gr.update(elem_classes=["status-success" if ready else "status-error"])
             )
 
-            if engine is not None:
+            if get_engine_safely() is not None:
                 yield final_status
             else:
                 return final_status

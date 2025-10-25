@@ -30,8 +30,48 @@ def get_user_friendly_error(error: Exception) -> str:
             return message
     return str(error)
 
+def _get_allowed_directories() -> List[str]:
+    """Get list of allowed directories for model/adapter files."""
+    allowed = [
+        os.getcwd(),  # Current working directory
+        os.path.expanduser("~"),  # User home directory
+        os.path.expanduser("~/Downloads"),  # User Downloads
+        os.path.expanduser("~/Documents"),  # User Documents
+        os.path.expanduser("~/Models"),  # Common models directory
+        "/tmp",  # Temporary directory (for user convenience, but logged)
+    ]
+
+    # Normalize all paths and resolve symlinks
+    return [os.path.realpath(os.path.normpath(d)) for d in allowed if os.path.exists(d)]
+
+def _is_path_in_allowed_directory(path: str, allowed_dirs: List[str]) -> Tuple[bool, Optional[str]]:
+    """
+    Check if path is within allowed directories.
+
+    Returns:
+        Tuple of (is_allowed, reason)
+        - is_allowed: True if path is in allowed directory
+        - reason: If not allowed, reason why; if allowed and in /tmp, warning message
+    """
+    # Resolve to real path (follows symlinks)
+    try:
+        real_path = os.path.realpath(path)
+    except Exception as e:
+        return False, f"Cannot resolve path: {e}"
+
+    # Check if path is within any allowed directory
+    for allowed_dir in allowed_dirs:
+        if real_path.startswith(allowed_dir + os.sep) or real_path == allowed_dir:
+            # Special warning for /tmp
+            if allowed_dir == os.path.realpath("/tmp"):
+                return True, f"⚠️ File in temporary directory: {real_path}"
+            return True, None
+
+    # Not in any allowed directory
+    return False, f"File must be in an allowed directory (current directory, home, Downloads, Documents, or Models)"
+
 def validate_model_path(path: str) -> Tuple[bool, str]:
-    """Validate model path with comprehensive checks."""
+    """Validate model path with comprehensive checks including directory containment."""
     if not path.strip():
         return False, "Please provide a model path"
 
@@ -57,6 +97,17 @@ def validate_model_path(path: str) -> Tuple[bool, str]:
 
         if file_size > MODEL_CONFIG.MAX_FILE_SIZE_GB * 1024 * 1024 * 1024:
             return False, f"File too large ({format_file_size(file_size)}). Expected < {MODEL_CONFIG.MAX_FILE_SIZE_GB}GB"
+
+        # Security: Check directory containment
+        allowed_dirs = _get_allowed_directories()
+        is_allowed, reason = _is_path_in_allowed_directory(normalized_path, allowed_dirs)
+
+        if not is_allowed:
+            return False, f"Security: {reason}"
+
+        # If allowed but has warning (e.g., /tmp), log it
+        if reason:
+            logger.warning(f"Model path security warning: {reason}")
 
         return True, normalized_path
 
@@ -124,7 +175,7 @@ def calculate_image_hash(file_path: str) -> str:
         return hashlib.md5(f.read()).hexdigest()
 
 def validate_dora_path(path: str) -> Tuple[bool, str]:
-    """Validate DoRA adapter path with comprehensive checks."""
+    """Validate DoRA adapter path with comprehensive checks including directory containment."""
     if not path or not path.strip():
         return False, "Please provide a DoRA adapter path"
 
@@ -153,6 +204,17 @@ def validate_dora_path(path: str) -> Tuple[bool, str]:
 
         if file_size > max_size:
             return False, f"DoRA file too large ({format_file_size(file_size)}). Expected < {MODEL_CONFIG.DORA_MAX_FILE_SIZE_MB}MB"
+
+        # Security: Check directory containment
+        allowed_dirs = _get_allowed_directories()
+        is_allowed, reason = _is_path_in_allowed_directory(normalized_path, allowed_dirs)
+
+        if not is_allowed:
+            return False, f"Security: {reason}"
+
+        # If allowed but has warning (e.g., /tmp), log it
+        if reason:
+            logger.warning(f"DoRA path security warning: {reason}")
 
         return True, normalized_path
 

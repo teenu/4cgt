@@ -200,6 +200,10 @@ class IndexedPromptFormatterData:
                 # Fallback to full search if not enough results
                 if len(all_results) < limit:
                     for item in full_data[source]:
+                        # Early termination once we have enough results
+                        if len(all_results) >= limit:
+                            break
+
                         trigger_lower = item['trigger'].lower()
                         if trigger_lower in seen_triggers:
                             continue

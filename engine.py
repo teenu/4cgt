@@ -484,9 +484,14 @@ class NoobAIEngine:
                 dora_toggle_mode, manual_schedule
             )
 
-            # Call user callback
+            # Call user callback with error isolation
             if progress_callback:
-                progress_callback(progress, desc)
+                try:
+                    progress_callback(progress, desc)
+                except Exception as e:
+                    # Log callback error but don't let it crash generation
+                    logger.warning(f"Progress callback error at step {current_step}: {e}")
+                    # Continue generation despite callback failure
 
             return callback_kwargs
 
@@ -771,7 +776,8 @@ class NoobAIEngine:
         # Apply dynamic DoRA settings
         if enable_dora is not None:
             self.set_dora_enabled(enable_dora)
-        if adapter_strength is not None and self.enable_dora and self.dora_loaded:
+        if adapter_strength is not None:
+            # set_adapter_strength handles all cases (loaded, not loaded, disabled)
             self.set_adapter_strength(adapter_strength)
         if dora_start_step is not None:
             self.set_dora_start_step(dora_start_step)
@@ -907,15 +913,59 @@ class NoobAIEngine:
         finally:
             # CRITICAL: Always reset state variables even if teardown partially fails
             # This ensures the engine doesn't remain in an inconsistent state
+            # Each attribute is reset individually with fallback to __dict__
+            reset_success = []
+            reset_failures = []
+
+            # Reset pipe
             try:
                 self.pipe = None
-                self.dora_loaded = False
-                self.dora_path = None
-                self.is_initialized = False
-                # Note: Preserve self._device for potential re-initialization
-                logger.info("Engine state variables reset in finally block")
+                reset_success.append('pipe')
             except Exception as e:
-                logger.error(f"Critical error in teardown finally block: {e}")
+                try:
+                    self.__dict__['pipe'] = None
+                    reset_success.append('pipe (via __dict__)')
+                except Exception as e2:
+                    reset_failures.append(f'pipe: {e2}')
+
+            # Reset dora_loaded
+            try:
+                self.dora_loaded = False
+                reset_success.append('dora_loaded')
+            except Exception as e:
+                try:
+                    self.__dict__['dora_loaded'] = False
+                    reset_success.append('dora_loaded (via __dict__)')
+                except Exception as e2:
+                    reset_failures.append(f'dora_loaded: {e2}')
+
+            # Reset dora_path
+            try:
+                self.dora_path = None
+                reset_success.append('dora_path')
+            except Exception as e:
+                try:
+                    self.__dict__['dora_path'] = None
+                    reset_success.append('dora_path (via __dict__)')
+                except Exception as e2:
+                    reset_failures.append(f'dora_path: {e2}')
+
+            # Reset is_initialized
+            try:
+                self.is_initialized = False
+                reset_success.append('is_initialized')
+            except Exception as e:
+                try:
+                    self.__dict__['is_initialized'] = False
+                    reset_success.append('is_initialized (via __dict__)')
+                except Exception as e2:
+                    reset_failures.append(f'is_initialized: {e2}')
+
+            # Log results
+            if reset_success:
+                logger.info(f"Engine state variables reset: {', '.join(reset_success)}")
+            if reset_failures:
+                logger.error(f"Failed to reset some state variables: {', '.join(reset_failures)}")
 
     def clear_memory(self) -> None:
         """Clear GPU/memory caches."""

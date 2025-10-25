@@ -34,6 +34,17 @@ from engine import NoobAIEngine
 engine: Optional[NoobAIEngine] = None
 _engine_lock = Lock()
 
+# Thread-safe engine access functions
+def is_engine_ready() -> bool:
+    """Thread-safe check if engine is initialized and ready."""
+    with _engine_lock:
+        return engine is not None and engine.is_initialized
+
+def get_engine_safely() -> Optional[NoobAIEngine]:
+    """Thread-safe getter for engine instance."""
+    with _engine_lock:
+        return engine
+
 # ============================================================================
 # UI HELPER FUNCTIONS
 # ============================================================================
@@ -433,9 +444,10 @@ def generate_image_with_progress(
 ) -> Tuple[Optional[str], str, str]:
     """Generate image with progress tracking and return file path for hash consistency."""
     try:
-        # Check engine with thread-safe access
+        # Check engine with thread-safe access and get local reference
         with _engine_lock:
-            engine_ready = engine is not None and engine.is_initialized
+            current_engine = engine
+            engine_ready = current_engine is not None and current_engine.is_initialized
 
         if not engine_ready:
             state_manager.set_state(GenerationState.ERROR)
@@ -483,7 +495,7 @@ def generate_image_with_progress(
             else:
                 logger.info(f"DoRA enabled: normal mode, start_step={dora_start_step}")
 
-        image, final_seed, info = engine.generate(
+        image, final_seed, info = current_engine.generate(
             prompt=prompt,
             negative_prompt=negative_prompt,
             width=width,
@@ -502,7 +514,7 @@ def generate_image_with_progress(
 
         # Save image with standardized settings
         output_path = os.path.join(OUTPUT_DIR, f"noobai_{final_seed}.png")
-        engine.save_image_standardized(image, output_path)
+        current_engine.save_image_standardized(image, output_path)
 
         # Add hash info to the generation info
         image_hash = calculate_image_hash(output_path)

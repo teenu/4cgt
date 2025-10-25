@@ -119,6 +119,7 @@ class ResourcePool:
     def __init__(self):
         self._lock = threading.Lock()
         self._resources = {}
+        self._failed_cleanups = {}  # Track resources that failed to clean up
 
     def get_or_create(self, key: str, creator_func: Callable) -> Any:
         """Get existing resource or create new one."""
@@ -128,27 +129,88 @@ class ResourcePool:
             return self._resources[key]
 
     def clear(self):
-        """Enhanced resource pool clearing with proper resource cleanup."""
+        """Enhanced resource pool clearing with proper resource cleanup and leak prevention."""
         with self._lock:
-            # Properly close/cleanup each resource before clearing
-            for key, resource in self._resources.items():
+            successfully_cleaned = []
+            failed_to_clean = {}
+
+            # Attempt to close/cleanup each resource
+            for key, resource in list(self._resources.items()):
+                cleanup_attempted = False
+                cleanup_succeeded = False
+
                 try:
                     # Handle different types of resources that need cleanup
                     if hasattr(resource, 'close'):
                         resource.close()
+                        cleanup_attempted = True
+                        cleanup_succeeded = True
                     elif hasattr(resource, 'cleanup'):
                         resource.cleanup()
-                    # Note: Resources without explicit cleanup methods will be handled by gc.collect() below
+                        cleanup_attempted = True
+                        cleanup_succeeded = True
+                    else:
+                        # Resources without explicit cleanup methods
+                        # Will be handled by gc.collect() - consider as successful
+                        cleanup_succeeded = True
+
                 except Exception as e:
                     logger.warning(f"Error cleaning up resource '{key}': {e}")
+                    failed_to_clean[key] = {'resource': resource, 'error': str(e)}
+                    cleanup_succeeded = False
 
-            # Clear the dictionary
-            self._resources.clear()
+                # Only remove from active resources if cleanup succeeded
+                if cleanup_succeeded:
+                    successfully_cleaned.append(key)
 
-            # Force garbage collection to clean up resources
-            gc.collect()
+            # Remove successfully cleaned resources from the pool
+            for key in successfully_cleaned:
+                del self._resources[key]
 
-            logger.info(f"Resource pool cleared and cleaned up")
+            # Track failed cleanups for potential retry or debugging
+            if failed_to_clean:
+                self._failed_cleanups.update(failed_to_clean)
+                logger.error(f"Resource pool has {len(failed_to_clean)} resource(s) that failed cleanup: {list(failed_to_clean.keys())}")
+                logger.error("These resources remain in memory to prevent leaks. Manual cleanup may be required.")
+
+            # Force garbage collection to clean up successfully released resources
+            collected = gc.collect()
+
+            logger.info(f"Resource pool cleared: {len(successfully_cleaned)} cleaned, {len(failed_to_clean)} failed, {collected} objects freed")
+
+    def get_failed_cleanups(self) -> Dict[str, Dict[str, Any]]:
+        """Get resources that failed to clean up."""
+        with self._lock:
+            return self._failed_cleanups.copy()
+
+    def retry_failed_cleanups(self) -> int:
+        """Retry cleanup of previously failed resources. Returns number of resources successfully cleaned."""
+        with self._lock:
+            if not self._failed_cleanups:
+                return 0
+
+            successfully_cleaned = []
+
+            for key, info in list(self._failed_cleanups.items()):
+                resource = info['resource']
+                try:
+                    if hasattr(resource, 'close'):
+                        resource.close()
+                    elif hasattr(resource, 'cleanup'):
+                        resource.cleanup()
+                    successfully_cleaned.append(key)
+                    logger.info(f"Successfully cleaned previously failed resource '{key}' on retry")
+                except Exception as e:
+                    logger.warning(f"Retry cleanup failed for resource '{key}': {e}")
+
+            # Remove successfully cleaned resources from failed list
+            for key in successfully_cleaned:
+                del self._failed_cleanups[key]
+
+            if successfully_cleaned:
+                gc.collect()
+
+            return len(successfully_cleaned)
 
 # Global resource pool
 resource_pool = ResourcePool()
