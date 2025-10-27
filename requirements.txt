@@ -1,0 +1,32 @@
+# NoobAI XL V-Pred 1.0 - Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core ML and Image Processing
+# Note: PyTorch installation is platform-specific. Install separately:
+#   CPU:  pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   CUDA: pip install torch --index-url https://download.pytorch.org/whl/cu118
+#   MPS:  pip install torch (native Apple Silicon support)
+torch>=2.0.0,<3.0.0
+
+# Diffusion Models and Pipeline
+diffusers>=0.21.0,<0.30.0
+
+# Web Interface
+gradio>=3.50.0,<4.0.0
+
+# Image Processing
+pillow>=10.0.0,<11.0.0
+
+# Optional but Recommended
+# Model format optimization
+safetensors>=0.3.0,<1.0.0
+
+# Data processing for CSV search functionality
+pandas>=2.0.0,<3.0.0
+
+# Installation Instructions:
+# 1. Install PyTorch for your platform (see note above)
+# 2. Run: pip install -r requirements.txt
+#
+# Minimum Python version: 3.8+
+# Recommended Python version: 3.10+
