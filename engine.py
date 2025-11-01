@@ -129,10 +129,28 @@ class NoobAIEngine:
 
         except (IOError, OSError, RuntimeError, ValueError) as e:
             self.is_initialized = False
+            # Clean up partially initialized GPU resources
+            if self.pipe is not None:
+                try:
+                    if self._device in ["cuda", "mps"]:
+                        self.clear_memory()
+                except Exception:
+                    pass  # Best effort cleanup, don't mask original error
+                finally:
+                    self.pipe = None
             logger.error(f"Failed to initialize engine: {e}")
             raise
         except Exception as e:
             self.is_initialized = False
+            # Clean up partially initialized GPU resources
+            if self.pipe is not None:
+                try:
+                    if self._device in ["cuda", "mps"]:
+                        self.clear_memory()
+                except Exception:
+                    pass  # Best effort cleanup, don't mask original error
+                finally:
+                    self.pipe = None
             logger.error(f"Unexpected error during engine initialization: {e}")
             raise
 
