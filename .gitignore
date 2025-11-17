@@ -30,16 +30,19 @@ ENV/
 *.ckpt
 *.pth
 
-# Generated images
+# Generated images (but preserve directory structure)
 *.png
 *.jpg
 *.jpeg
+!outputs/.gitkeep
 
 # CSV data files (keep structure, ignore actual data)
 style/*.csv
+!style/.gitkeep
 
-# DoRA adapters directory
-dora/
+# DoRA adapters (keep structure, ignore safetensors files)
+dora/*.safetensors
+!dora/.gitkeep
 
 # IDE
 .vscode/

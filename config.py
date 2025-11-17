@@ -164,11 +164,24 @@ DEFAULT_POSITIVE_PREFIX = "very awa, masterpiece, best quality, year 2024, newes
 
 # Model search paths
 # Use absolute paths to avoid CWD dependency issues
+# Searches for FP16-optimized model first (recommended), then original BF16 model
+_model_filenames = [
+    "NoobAI-XL-Vpred-v1.0-fp16-all.safetensors",  # FP16 optimized (recommended for RTX 20xx/30xx)
+    "NoobAI-XL-Vpred-v1.0-fp16.safetensors",       # FP16 variant
+    "NoobAI-XL-Vpred-v1.0.safetensors",            # Original BF16 (requires RTX 30xx+)
+]
+
+_search_directories = [
+    _script_dir,                                        # Script directory
+    os.path.join(_script_dir, "models"),               # Models subdirectory
+    os.path.join(os.path.expanduser("~"), "Downloads"), # User Downloads
+    os.path.join(os.path.expanduser("~"), "Models"),   # User Models directory
+]
+
 MODEL_SEARCH_PATHS = [
-    os.path.join(_script_dir, "NoobAI-XL-Vpred-v1.0.safetensors"),  # Script directory
-    os.path.join(_script_dir, "models", "NoobAI-XL-Vpred-v1.0.safetensors"),  # Models subdirectory
-    os.path.join(os.path.expanduser("~"), "Downloads", "NoobAI-XL-Vpred-v1.0.safetensors"),  # User Downloads
-    os.path.join(os.path.expanduser("~"), "Models", "NoobAI-XL-Vpred-v1.0.safetensors"),  # User Models
+    os.path.join(directory, filename)
+    for directory in _search_directories
+    for filename in _model_filenames
 ]
 
 # DoRA adapter search directories

@@ -11,17 +11,24 @@ torch>=2.0.0,<3.0.0
 # Diffusion Models and Pipeline
 diffusers>=0.21.0,<0.30.0
 
+# CPU Offloading for Low-VRAM GPUs
+# Required for sequential CPU offloading (enables inference on 6GB GPUs)
+accelerate>=0.21.0
+
+# DoRA Adapter Support
+# Required for loading DoRA (Weight-Decomposed Low-Rank Adaptation) adapters
+peft>=0.18.0
+
 # Web Interface
 gradio>=3.50.0,<4.0.0
 
 # Image Processing
 pillow>=10.0.0,<11.0.0
 
-# Optional but Recommended
 # Model format optimization
 safetensors>=0.3.0,<1.0.0
 
-# Data processing for CSV search functionality
+# Data processing for CSV search functionality (character/artist autocomplete)
 pandas>=2.0.0,<3.0.0
 
 # Installation Instructions:
