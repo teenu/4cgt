@@ -59,6 +59,10 @@ numpy>=1.24.0
 # 4. Verify installation:
 #    python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}')"
 #
+# WINDOWS USERS: If you encounter "ModuleNotFoundError: No module named 'transformers.utils'"
+# after installation, this indicates a corrupted transformers installation. Fix with:
+#    pip uninstall transformers -y && pip install transformers>=4.40.0
+#
 # ============================================================================
 # TROUBLESHOOTING
 # ============================================================================
@@ -80,5 +84,11 @@ numpy>=1.24.0
 #     python -m venv venv
 #     venv\Scripts\activate  (Windows)
 #     source venv/bin/activate  (Linux/Mac)
+#
+# Corrupted Transformers Installation (Windows):
+#   If you see "ModuleNotFoundError: No module named 'transformers.utils'":
+#   - This is caused by pip cache corruption on Windows
+#   - Fix: pip uninstall transformers -y && pip install transformers>=4.40.0
+#   - Alternative: pip cache purge && pip install -r requirements.txt
 #
 # ============================================================================

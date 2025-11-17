@@ -236,6 +236,26 @@ noobai-xl-modular/
 
 ## Troubleshooting
 
+### ModuleNotFoundError: No module named 'transformers.utils' (Windows)
+
+**Symptom:** Application crashes immediately with transformers import error
+
+**Cause:** Corrupted transformers installation due to Windows pip cache issues
+
+**Fix:**
+```bash
+pip uninstall transformers -y
+pip install transformers>=4.40.0
+```
+
+**Alternative fix (clears all pip cache):**
+```bash
+pip cache purge
+pip install -r requirements.txt
+```
+
+This is a known Windows-specific issue where pip's cache can become corrupted during installation, causing the transformers package to install incompletely. The fix works without requiring Windows Long Paths to be enabled.
+
 ### "No model found" error
 - Ensure model file is in the repository root or `models/` directory
 - Check filename matches: `NoobAI-XL-Vpred-v1.0*.safetensors`
