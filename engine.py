@@ -71,20 +71,22 @@ class NoobAIEngine:
                 elif self._device == "cuda":
                     # Validate GPU supports the detected precision
                     if base_precision == torch.bfloat16:
-                        # Check if GPU has BF16 capability (Ampere/Ada architecture or newer)
-                        bf16_supported = False
+                        # Check GPU compute capability (BF16 tensor cores require 8.0+, Ampere/Ada/Hopper)
+                        bf16_tensor_cores = False
                         try:
-                            if hasattr(torch.cuda, 'is_bf16_supported'):
-                                bf16_supported = torch.cuda.is_bf16_supported()
+                            compute_capability = torch.cuda.get_device_capability(0)
+                            bf16_tensor_cores = compute_capability[0] >= 8
+                            logger.debug(f"GPU compute capability: {compute_capability}, BF16 tensor cores: {bf16_tensor_cores}")
                         except (AttributeError, RuntimeError) as e:
-                            logger.debug(f"Could not check BF16 support: {e}")
+                            logger.debug(f"Could not check compute capability: {e}")
 
-                        if bf16_supported:
+                        if bf16_tensor_cores:
                             inference_dtype = torch.bfloat16
                         else:
+                            gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "Unknown"
                             logger.warning(
-                                f"GPU does not support BF16 (requires Ampere architecture or newer). "
-                                f"Falling back to FP16 for compatibility."
+                                f"GPU ({gpu_name}) does not have BF16 tensor cores (requires Ampere/compute capability 8.0+). "
+                                f"Falling back to FP16 for optimal performance with FP16 tensor cores."
                             )
                             inference_dtype = torch.float16
                     else:
@@ -111,10 +113,35 @@ class NoobAIEngine:
                 )
 
                 # Move to device and enable optimizations
-                self.pipe = self.pipe.to(self._device)
+                # Use CPU offloading for GPUs with limited VRAM to reduce memory pressure
+                use_cpu_offload = False
+                if self._device == "cuda":
+                    try:
+                        vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                        gpu_name = torch.cuda.get_device_name(0)
+
+                        # Enable CPU offloading for GPUs <8GB to reduce VRAM usage and avoid swapping
+                        if vram_gb < 8.0:
+                            use_cpu_offload = True
+                            logger.info(
+                                f"GPU ({gpu_name}) has {vram_gb:.1f}GB VRAM. "
+                                f"Enabling sequential CPU offloading for optimal performance."
+                            )
+                            self.pipe.enable_sequential_cpu_offload()
+                        else:
+                            logger.info(f"GPU ({gpu_name}) has {vram_gb:.1f}GB VRAM. Using full GPU loading.")
+                            self.pipe = self.pipe.to(self._device)
+                    except Exception as e:
+                        logger.debug(f"Could not detect VRAM capacity: {e}. Using full GPU loading.")
+                        self.pipe = self.pipe.to(self._device)
+                else:
+                    self.pipe = self.pipe.to(self._device)
+
+                # Enable memory optimizations
                 if self._device != "cpu":
                     self.pipe.enable_vae_slicing()
-                    if self._device == "cuda":
+                    if self._device == "cuda" and not use_cpu_offload:
+                        # Enable attention slicing only without CPU offload (redundant otherwise)
                         self.pipe.enable_attention_slicing()
 
                 # Validate precision consistency
