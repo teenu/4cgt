@@ -220,7 +220,9 @@ def parse_args():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s --gui                                    # Launch GUI (default)
+  %(prog)s                                          # Launch GUI locally (default)
+  %(prog)s --lan                                    # Launch GUI accessible on LAN (no auto-browser)
+  %(prog)s --lan --port 8080                        # LAN mode on custom port
   %(prog)s --cli --prompt "cat girl, anime"        # CLI generation
   %(prog)s --cli --prompt "dragon" --steps 40      # CLI with custom steps
   %(prog)s --cli --prompt "landscape" --width 1024 --height 768  # Custom resolution
@@ -393,5 +395,17 @@ Examples:
         action="store_true",
         help="Don't open browser automatically"
     )
+    gui_group.add_argument(
+        "--lan",
+        action="store_true",
+        help="Enable LAN access (binds to 0.0.0.0, disables auto-browser). Access from any device on your network."
+    )
 
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    # Process --lan flag (convenient shortcut for LAN access)
+    if args.lan:
+        args.host = "0.0.0.0"
+        args.no_browser = True
+
+    return args

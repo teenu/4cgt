@@ -122,6 +122,41 @@ The web interface will open automatically at `http://localhost:7860`
 - ⚙️ **Advanced Settings**: CFG scale, steps, resolution, seed control
 - 📊 **Real-time Generation**: Progress tracking with ETA
 
+### LAN Access Mode (Network Access)
+
+Enable LAN access to use the GUI from any device on your local network:
+
+```bash
+python main.py --lan
+```
+
+**What happens:**
+- Server binds to `0.0.0.0` (all network interfaces)
+- Browser doesn't open automatically
+- Gradio displays both local and network URLs
+
+**Example output:**
+```
+🌐 LAN Access Mode: Enabled
+   Interface will be accessible from any device on your local network
+   Server will bind to: 0.0.0.0:7860
+
+Running on local URL:  http://127.0.0.1:7860
+Running on public URL: http://192.168.1.100:7860
+```
+
+**Use cases:**
+- **Windows PC → iPhone/iPad**: Run on Windows, access from mobile Safari
+- **Linux Server → Multiple Clients**: Headless server, access from any device
+- **Mac → Android Tablet**: Run on Mac, access from tablet browser
+
+**Custom port:**
+```bash
+python main.py --lan --port 8080
+```
+
+**Security Note:** LAN mode is only accessible on your local network. For internet access, use `--share` to create a temporary public Gradio link.
+
 ### CLI Mode
 
 **Basic generation:**

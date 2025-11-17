@@ -58,6 +58,14 @@ def main():
         logger.info(f"Performance monitoring: {'Enabled' if perf_monitor.enabled else 'Disabled'}")
         logger.info(f"Output directory: {OUTPUT_DIR}")
 
+        # Display network mode information
+        if args.host == "0.0.0.0":
+            logger.info("🌐 LAN Access Mode: Enabled")
+            logger.info("   Interface will be accessible from any device on your local network")
+            logger.info(f"   Server will bind to: 0.0.0.0:{args.port}")
+        else:
+            logger.info(f"🖥️  Local Access Mode: Running on {args.host}:{args.port}")
+
         # Pre-load CSV data
         logger.info("Loading CSV data for prompt formatter...")
         get_prompt_data()
