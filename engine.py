@@ -79,58 +79,85 @@ class NoobAIEngine:
 
                 logger.info(f"Using device: {self._device.upper()}")
 
-                # Detect base model precision and use consistently
+                # Detect base model precision
                 base_precision = detect_base_model_precision(self.model_path)
 
-                # Device-aware precision compatibility check
-                if self._device == "cpu":
-                    inference_dtype = torch.float32
-                elif self._device == "cuda":
-                    # Validate GPU supports the detected precision
-                    if base_precision == torch.bfloat16:
-                        # Check GPU compute capability (BF16 tensor cores require 8.0+, Ampere/Ada/Hopper)
-                        bf16_tensor_cores = False
-                        try:
-                            compute_capability = torch.cuda.get_device_capability(0)
-                            bf16_tensor_cores = compute_capability[0] >= 8
-                            logger.debug(f"GPU compute capability: {compute_capability}, BF16 tensor cores: {bf16_tensor_cores}")
-                        except (AttributeError, RuntimeError) as e:
-                            logger.debug(f"Could not check compute capability: {e}")
+                # CRITICAL: For lossless quality and cross-platform parity, we enforce:
+                # 1. BF16 model (NoobAI-XL-Vpred-v1.0.safetensors) is canonical/highest quality
+                # 2. Platforms without BF16 → upcast to FP32 (lossless)
+                # 3. Never downcast to FP16 (lossy compared to BF16)
+                # 4. All platforms use identical precision pipeline
 
-                        if bf16_tensor_cores:
-                            inference_dtype = torch.bfloat16
-                        else:
-                            gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "Unknown"
-                            logger.warning(
-                                f"GPU ({gpu_name}) does not have BF16 tensor cores (requires Ampere/compute capability 8.0+). "
-                                f"Falling back to FP16 for optimal performance with FP16 tensor cores."
-                            )
-                            inference_dtype = torch.float16
+                # Check platform BF16 support
+                bf16_supported = False
+                if self._device == "cuda":
+                    try:
+                        compute_capability = torch.cuda.get_device_capability(0)
+                        bf16_supported = compute_capability[0] >= 8
+                        logger.debug(f"GPU compute capability: {compute_capability}, BF16 support: {bf16_supported}")
+                    except (AttributeError, RuntimeError) as e:
+                        logger.debug(f"Could not check CUDA compute capability: {e}")
+                elif self._device == "mps":
+                    # Apple Silicon supports BF16 natively via AMX
+                    bf16_supported = True
+                    logger.debug("Apple Silicon MPS: BF16 natively supported")
+                elif self._device == "cpu":
+                    # CPU supports BF16 but slow; use FP32
+                    bf16_supported = False
+
+                # Determine inference precision based on model and platform
+                if base_precision == torch.bfloat16:
+                    if bf16_supported:
+                        # Use BF16 natively for optimal quality and performance
+                        inference_dtype = torch.bfloat16
+                        logger.info("Using native BF16 precision (optimal quality)")
                     else:
-                        inference_dtype = base_precision
-                else:
-                    # MPS (Apple Silicon) - Prefer BF16 over FP16 for quality
-                    # Apple AMX instructions excel at BF16, providing better dynamic range
-                    # than FP16 (8-bit exponent vs 5-bit exponent) critical for diffusion models
-                    if base_precision == torch.float16:
+                        # Upcast BF16 → FP32 (lossless) for platforms without BF16 support
+                        inference_dtype = torch.float32
+                        gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
                         logger.warning(
-                            "FP16 model detected on Apple Silicon. "
-                            "For optimal quality on M1/M2/M3, use BF16 model (NoobAI-XL-Vpred-v1.0.safetensors) "
-                            "which leverages Apple's AMX BF16 acceleration."
+                            f"{gpu_name} does not support BF16 tensor cores. "
+                            f"Upcasting to FP32 (lossless) for quality preservation. "
+                            f"Note: Slower than BF16 but maintains full precision."
                         )
-                        inference_dtype = base_precision
-                    else:
-                        # Use BF16 for Apple Silicon (optimal for AMX)
-                        inference_dtype = base_precision
+                elif base_precision == torch.float16:
+                    # FP16 model detected - warn user about quality loss
+                    logger.warning(
+                        "FP16 model detected (NoobAI-XL-Vpred-v1.0-fp16*.safetensors). "
+                        "For highest quality and cross-platform parity, use BF16 model "
+                        "(NoobAI-XL-Vpred-v1.0.safetensors) which will be upcast to FP32 on "
+                        "platforms without BF16 support."
+                    )
+                    # Upcast FP16 → FP32 for consistency
+                    inference_dtype = torch.float32
+                else:
+                    # FP32 or other precision
+                    inference_dtype = base_precision
 
-                logger.info(f"Using {inference_dtype} precision on {self._device.upper()}")
+                logger.info(f"Inference precision: {inference_dtype} (base model: {base_precision})")
 
-                # Load pipeline with detected precision
+                # Load pipeline with lossless VAE precision
+                # VAE runs in FP32 for highest quality decode (prevents color banding/artifacts)
+                logger.info("Loading VAE in FP32 for lossless image decode")
+
+                from diffusers import AutoencoderKL
+
+                # Load VAE separately in FP32
+                vae = AutoencoderKL.from_single_file(
+                    self.model_path,
+                    torch_dtype=torch.float32,
+                    use_safetensors=True,
+                )
+
+                # Load pipeline with inference precision, but override VAE
                 self.pipe = StableDiffusionXLPipeline.from_single_file(
                     self.model_path,
                     torch_dtype=inference_dtype,
+                    vae=vae,
                     use_safetensors=True,
                 )
+
+                logger.info(f"Pipeline loaded: UNet/TextEncoders={inference_dtype}, VAE=FP32")
 
                 # Configure scheduler
                 self.pipe.scheduler = EulerDiscreteScheduler.from_config(

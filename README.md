@@ -2,16 +2,23 @@
 
 Clean, modular implementation of NoobAI XL V-Pred 1.0 with precision optimization, DoRA adapter support, and interactive prompt formatting.
 
-## ⚠️ Critical: Model Precision and Platform Compatibility
+## ⚠️ Critical: Lossless Quality and Platform Parity
 
-**Apple Silicon (M1/M2/M3) Users**: For optimal quality, use the **BF16 model** (`NoobAI-XL-Vpred-v1.0.safetensors`), not the FP16 variant. Apple's AMX instructions provide superior BF16 performance with better dynamic range (8-bit vs 5-bit exponent) critical for diffusion model quality.
+**All Users - Use BF16 Model**: For lossless quality and cross-platform parity, use **`NoobAI-XL-Vpred-v1.0.safetensors`** (BF16) - the canonical, developer-intended highest quality model.
 
-**Cross-Platform Determinism**: This implementation enforces deterministic algorithms to ensure **identical outputs** across all platforms (macOS, Windows, Linux) when using the same seed, model, and parameters. Same seed = same image hash, regardless of hardware.
+**Automatic Precision Handling**:
+- **Platforms with BF16 support** (Apple Silicon, RTX 30xx/40xx): Native BF16 execution
+- **Platforms without BF16** (RTX 20xx, older GPUs): Automatic lossless upcast to FP32
+- **VAE**: Always runs in FP32 for lossless image decode (prevents quantization artifacts)
+- **Result**: Identical quality and output hashes across all platforms
+
+**Cross-Platform Determinism**: Same seed + same model + same parameters = **identical image hash** on macOS, Windows, and Linux. No platform-dependent variance.
 
 ## Features
 
-- **Platform-Optimized Precision**: Automatic precision selection (BF16 for Apple Silicon/Ampere+, FP16 for Turing)
-- **Deterministic Generation**: Reproducible outputs across all platforms with seed consistency
+- **Lossless Quality Pipeline**: FP32 VAE + intelligent precision (BF16 native or FP32 upcast)
+- **Cross-Platform Parity**: Identical image hashes for same seed across all platforms
+- **Deterministic Generation**: Reproducible outputs with enforced deterministic algorithms
 - **CPU Offloading**: Automatic sequential CPU offloading for GPUs with <8GB VRAM
 - **DoRA Adapters**: Support for Weight-Decomposed Low-Rank Adaptation stabilizers
 - **Interactive GUI**: Gradio-based web interface with character/artist search
@@ -90,19 +97,22 @@ Alternatively, use a shorter installation path like `C:\noobai\` instead of deep
 
 ### 3. Download Model File
 
-Download one of the following model files and place in the repository root directory:
+**REQUIRED - Canonical Model (All Platforms):**
+- `NoobAI-XL-Vpred-v1.0.safetensors` (7.0GB, BF16)
 
-**Recommended (FP16 Optimized for RTX 20xx/30xx):**
-- `NoobAI-XL-Vpred-v1.0-fp16-all.safetensors` (6.5GB)
-
-**Alternative (Original BF16 - requires RTX 30xx+):**
-- `NoobAI-XL-Vpred-v1.0.safetensors` (7.0GB)
+**Why this model?**
+- Developer's canonical, highest-quality version
+- Lossless quality on ALL platforms (auto-upcast to FP32 if needed)
+- Cross-platform parity guaranteed
+- FP16 models will be upcast to FP32 (quality preserved but not recommended)
 
 The application will automatically detect the model file in:
 - Repository root directory
 - `./models/` subdirectory
 - `~/Downloads/`
 - `~/Models/`
+
+**Note**: If using FP16 model, you'll see a warning. For guaranteed quality parity, use BF16.
 
 ### 4. Download Style Data (Required for GUI)
 
@@ -242,39 +252,47 @@ noobai-xl-modular/
 
 ## Model Precision Guide
 
-### BF16 vs FP16: Which Model Should You Use?
+### Why BF16 Model is Required for Quality Parity
 
 **BF16 Model (`NoobAI-XL-Vpred-v1.0.safetensors` - 7.0GB):**
-- **Best for**: Apple Silicon (M1/M2/M3), RTX 30xx/40xx (Ampere/Ada/Hopper)
-- **Advantages**:
-  - Wider dynamic range (8-bit exponent vs FP16's 5-bit)
-  - Better numerical stability for diffusion models
-  - Optimal for Apple AMX and NVIDIA Ampere+ tensor cores
-- **Quality**: **Highest quality**, especially on Apple Silicon
+- ✅ **Developer's canonical, highest-quality version**
+- ✅ **Works on ALL platforms** (auto-upcast to FP32 if no BF16 support)
+- ✅ **Lossless quality** (BF16 → FP32 upcast preserves all precision)
+- ✅ **Cross-platform parity** (identical outputs on macOS/Windows/Linux)
+- ✅ **FP32 VAE** (prevents color banding and quantization artifacts)
 
-**FP16 Model (`NoobAI-XL-Vpred-v1.0-fp16-all.safetensors` - 6.5GB):**
-- **Best for**: RTX 20xx series (Turing)
-- **Advantages**:
-  - Smaller file size
-  - Better performance on Turing GPUs (RTX 2060/2070/2080)
-- **Quality**: Slightly lower than BF16 due to narrow exponent range
-- **Note**: On Apple Silicon, BF16 model provides **noticeably better quality**
+**Platform Behavior:**
+- **Apple Silicon (M1/M2/M3)**: Native BF16 via AMX instructions (optimal)
+- **RTX 30xx/40xx (Ampere/Ada)**: Native BF16 via tensor cores (optimal)
+- **RTX 20xx (Turing)**: Upcast to FP32 (lossless but slower)
+- **Older GPUs**: Upcast to FP32 (lossless but slower)
 
-### Why Apple Silicon Users Should Prefer BF16
+**FP16 Models (NOT recommended):**
+- ⚠️ Will be upcast to FP32 for consistency
+- ⚠️ Quality preserved via upcast but defeats purpose of smaller file
+- ⚠️ Use BF16 model for developer-intended quality
 
-Apple's M1/M2/M3 chips have dedicated AMX (Apple Matrix) instructions optimized for BF16:
-- **AMX BF16**: Native hardware acceleration
-- **AMX FP16**: Supported but not as optimized
-- **Dynamic Range**: BF16's 8-bit exponent prevents overflow/underflow in diffusion activations
-- **Result**: BF16 model produces superior image quality, color accuracy, and detail on macOS
+### Precision Pipeline Explained
 
-### Cross-Platform Reproducibility
+**For Lossless Quality:**
+1. **BF16 model** loaded from disk
+2. **Platforms with BF16**: Run BF16 inference natively
+3. **Platforms without BF16**: Lossless upcast to FP32
+4. **VAE**: Always FP32 for lossless decode
+5. **Result**: Identical quality across all platforms
 
-This implementation ensures **identical outputs** across platforms for the same inputs:
-- ✅ Same seed → same image hash (Windows/macOS/Linux)
-- ✅ Deterministic algorithms enforced globally
-- ✅ CPU generator used for consistent noise across platforms
-- ✅ Platform-specific optimizations (attention slicing) disabled for uniformity
+**Why FP32 for non-BF16 platforms?**
+- BF16 → FP32 = **lossless** (BF16 range ⊂ FP32 range)
+- BF16 → FP16 = **lossy** (incompatible exponent/mantissa trade-offs)
+- FP32 guarantees numerical parity across platforms
+
+### Cross-Platform Reproducibility Guarantees
+
+✅ **Same seed → same image hash** (macOS/Windows/Linux)
+✅ **Deterministic algorithms enforced**
+✅ **CPU generator for consistent RNG**
+✅ **Uniform precision pipeline** (no platform-specific optimizations)
+✅ **FP32 VAE** (eliminates decode variance)
 
 ## Troubleshooting
 

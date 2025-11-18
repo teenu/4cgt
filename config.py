@@ -164,11 +164,11 @@ DEFAULT_POSITIVE_PREFIX = "very awa, masterpiece, best quality, year 2024, newes
 
 # Model search paths
 # Use absolute paths to avoid CWD dependency issues
-# Searches for FP16-optimized model first (recommended), then original BF16 model
+# Prioritize BF16 model (canonical/highest quality) - will be upcast to FP32 on non-BF16 platforms
 _model_filenames = [
-    "NoobAI-XL-Vpred-v1.0-fp16-all.safetensors",  # FP16 optimized (recommended for RTX 20xx/30xx)
-    "NoobAI-XL-Vpred-v1.0-fp16.safetensors",       # FP16 variant
-    "NoobAI-XL-Vpred-v1.0.safetensors",            # Original BF16 (requires RTX 30xx+)
+    "NoobAI-XL-Vpred-v1.0.safetensors",            # BF16 (canonical, highest quality, lossless)
+    "NoobAI-XL-Vpred-v1.0-fp16-all.safetensors",  # FP16 (will be upcast to FP32 for consistency)
+    "NoobAI-XL-Vpred-v1.0-fp16.safetensors",       # FP16 variant (will be upcast to FP32)
 ]
 
 _search_directories = [
