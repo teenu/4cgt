@@ -101,22 +101,13 @@ class StateManager:
             return self._state == GenerationState.INTERRUPTED
 
     def request_interrupt(self) -> None:
-        """Request generation interruption.
-
-        Only transitions from GENERATING to INTERRUPTED to prevent invalid state changes.
-        """
+        """Request generation interruption."""
         with self._lock:
             if self._state == GenerationState.GENERATING:
                 self._state = GenerationState.INTERRUPTED
 
     def try_start_generation(self) -> bool:
-        """Atomically attempt to start generation.
-
-        Returns:
-            True if state was IDLE and is now GENERATING, False otherwise.
-
-        This prevents race conditions where multiple threads try to start generation.
-        """
+        """Atomically attempt to start generation."""
         with self._lock:
             if self._state == GenerationState.IDLE:
                 self._state = GenerationState.GENERATING
@@ -124,13 +115,7 @@ class StateManager:
             return False
 
     def try_complete_generation(self) -> bool:
-        """Atomically attempt to mark generation as completed.
-
-        Returns:
-            True if state was GENERATING and is now COMPLETED, False otherwise.
-
-        This prevents race conditions where completion is called during interruption.
-        """
+        """Atomically attempt to mark generation as completed."""
         with self._lock:
             if self._state == GenerationState.GENERATING:
                 self._state = GenerationState.COMPLETED
@@ -138,11 +123,7 @@ class StateManager:
             return False
 
     def finish_generation(self) -> None:
-        """Finish generation and return to IDLE state.
-
-        Safe to call regardless of current state (COMPLETED, INTERRUPTED, ERROR).
-        Does not transition from GENERATING to prevent accidental state corruption.
-        """
+        """Finish generation and return to IDLE state."""
         with self._lock:
             if self._state != GenerationState.GENERATING:
                 self._state = GenerationState.IDLE
@@ -170,11 +151,9 @@ class ResourcePool:
             return self._resources[key]
 
     def clear(self):
-        """Enhanced resource pool clearing with proper resource cleanup and leak prevention."""
+        """Clear resource pool."""
         with self._lock:
-            # First, clear any stale cleanup metadata
             if self._failed_cleanups:
-                logger.info(f"Checking {len(self._failed_cleanups)} previously failed resource(s) for stale metadata")
                 cleared_count = self._clear_stale_cleanup_metadata_internal()
                 if cleared_count > 0:
                     logger.info(f"Cleared {cleared_count} stale cleanup metadata entries")
@@ -182,56 +161,31 @@ class ResourcePool:
             successfully_cleaned = []
             failed_to_clean = {}
 
-            # Attempt to close/cleanup each resource
             for key, resource in list(self._resources.items()):
-                cleanup_attempted = False
-                cleanup_succeeded = False
-
                 try:
-                    # Handle different types of resources that need cleanup
                     if hasattr(resource, 'close'):
                         resource.close()
-                        cleanup_attempted = True
-                        cleanup_succeeded = True
                     elif hasattr(resource, 'cleanup'):
                         resource.cleanup()
-                        cleanup_attempted = True
-                        cleanup_succeeded = True
-                    else:
-                        # Resources without explicit cleanup methods
-                        # Will be handled by gc.collect() - consider as successful
-                        cleanup_succeeded = True
-
                 except Exception as e:
                     logger.warning(f"Error cleaning up resource '{key}': {e}")
-                    # Store metadata for tracking, but still mark for removal from pool
                     failed_to_clean[key] = {'resource': resource, 'error': str(e)}
-                    cleanup_succeeded = False
 
-                # Remove from active resources regardless of cleanup success
-                # This prevents permanent memory leaks from repeatedly failed cleanups
                 successfully_cleaned.append(key)
 
-            # Remove successfully cleaned resources from the pool
             for key in successfully_cleaned:
                 del self._resources[key]
 
-            # Track failed cleanups for potential retry or debugging
-            # IMPORTANT: Store only metadata, not resource references, to prevent memory leaks
             if failed_to_clean:
                 for key, info in failed_to_clean.items():
-                    # Store only error message and timestamp, not the resource object
                     self._failed_cleanups[key] = {
                         'error': info['error'],
                         'timestamp': time.time(),
                         'type': type(info['resource']).__name__
                     }
-                logger.error(f"Resource pool has {len(failed_to_clean)} resource(s) that failed cleanup: {list(failed_to_clean.keys())}")
-                logger.error("Failed resource metadata stored for debugging. Resources released to GC.")
+                logger.error(f"Failed cleanup for {len(failed_to_clean)} resource(s): {list(failed_to_clean.keys())}")
 
-            # Force garbage collection to clean up successfully released resources
             collected = gc.collect()
-
             logger.info(f"Resource pool cleared: {len(successfully_cleaned)} cleaned, {len(failed_to_clean)} failed, {collected} objects freed")
 
     def get_failed_cleanups(self) -> Dict[str, Dict[str, Any]]:
@@ -240,25 +194,19 @@ class ResourcePool:
             return self._failed_cleanups.copy()
 
     def _clear_stale_cleanup_metadata_internal(self) -> int:
-        """Internal method to clear stale cleanup metadata (assumes lock is already held).
-
-        Since resource references are not stored (to prevent memory leaks), this method
-        only removes metadata entries older than 1 hour, which are likely already GC'd.
-        """
+        """Clear stale cleanup metadata older than 1 hour."""
         if not self._failed_cleanups:
             return 0
 
-        # Remove entries older than 1 hour (likely already GC'd)
         current_time = time.time()
         stale_entries = []
 
         for key, info in list(self._failed_cleanups.items()):
-            if current_time - info['timestamp'] > 3600:  # 1 hour
+            if current_time - info['timestamp'] > 3600:
                 stale_entries.append(key)
 
         for key in stale_entries:
             del self._failed_cleanups[key]
-            logger.debug(f"Removed stale cleanup metadata for '{key}'")
 
         if stale_entries:
             gc.collect()
@@ -266,11 +214,7 @@ class ResourcePool:
         return len(stale_entries)
 
     def clear_stale_cleanup_metadata(self) -> int:
-        """Clear stale cleanup metadata for resources that failed cleanup.
-
-        Since resource references are not stored (to prevent memory leaks), this method
-        only removes metadata entries older than 1 hour. Returns number of entries cleared.
-        """
+        """Clear stale cleanup metadata."""
         with self._lock:
             return self._clear_stale_cleanup_metadata_internal()
 
