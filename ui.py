@@ -22,9 +22,13 @@ from ui_helpers import (
 # GRADIO INTERFACE
 # ============================================================================
 
-def create_interface() -> gr.Blocks:
-    """Create the Gradio interface."""
-    init_status, default_model_path, default_enable_dora, default_dora_path, default_adapter_selection = auto_initialize()
+def create_interface(model_path: str = None) -> gr.Blocks:
+    """Create the Gradio interface.
+
+    Args:
+        model_path: Optional path to model file or directory. If provided, overrides auto-discovery.
+    """
+    init_status, default_model_path, default_enable_dora, default_dora_path, default_adapter_selection = auto_initialize(model_path)
     is_ready = is_engine_ready()
 
     # Get smart DoRA UI state

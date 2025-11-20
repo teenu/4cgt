@@ -70,8 +70,8 @@ def main():
         logger.info("Loading CSV data for prompt formatter...")
         get_prompt_data()
 
-        # Create and launch interface
-        demo = create_interface()
+        # Create and launch interface (pass model_path if specified)
+        demo = create_interface(model_path=args.model_path if hasattr(args, 'model_path') else None)
 
         # Enable queue for progress tracking (required by Gradio 3.50.x)
         demo.queue()

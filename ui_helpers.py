@@ -345,7 +345,17 @@ def initialize_engine(model_path: str, enable_dora: bool = False, dora_path: str
                 dora_start_step=OPTIMAL_SETTINGS['dora_start_step']
             )
 
-            model_size = os.path.getsize(validated_model_path)
+            # Get model size (handle both files and directories)
+            if os.path.isdir(validated_model_path):
+                # For directories, calculate total size of all files
+                model_size = sum(
+                    os.path.getsize(os.path.join(dirpath, filename))
+                    for dirpath, _, filenames in os.walk(validated_model_path)
+                    for filename in filenames
+                )
+            else:
+                model_size = os.path.getsize(validated_model_path)
+
             status_msg = f"✅ Engine initialized!\n📊 Model: {format_file_size(model_size)}{dora_status}"
 
             return status_msg
@@ -367,13 +377,21 @@ def initialize_engine(model_path: str, enable_dora: bool = False, dora_path: str
             return f"❌ Initialization failed: {error_msg}"
 
 def find_model_path() -> Optional[str]:
-    """Search for the model file in common locations."""
+    """Search for the model file or directory in common locations."""
     for path in MODEL_SEARCH_PATHS:
         if os.path.exists(path):
             try:
-                file_size = os.path.getsize(path)
-                if file_size > MODEL_CONFIG.MIN_FILE_SIZE_MB * 1024 * 1024:
-                    return path
+                if os.path.isdir(path):
+                    # Directory (diffusers format) - check if it has required files
+                    unet_path = os.path.join(path, "unet")
+                    vae_path = os.path.join(path, "vae")
+                    if os.path.isdir(unet_path) and os.path.isdir(vae_path):
+                        return path
+                else:
+                    # File (safetensors format) - check size
+                    file_size = os.path.getsize(path)
+                    if file_size > MODEL_CONFIG.MIN_FILE_SIZE_MB * 1024 * 1024:
+                        return path
             except Exception:
                 continue
     return None
@@ -430,9 +448,17 @@ def refresh_adapter_choices() -> gr.update:
     default_value = get_default_adapter_selection()
     return gr.update(choices=choices, value=default_value)
 
-def auto_initialize() -> Tuple[str, str, bool, str, str]:
-    """Enhanced auto-initialize with smart DoRA defaults."""
-    model_path = find_model_path()
+def auto_initialize(preferred_model_path: str = None) -> Tuple[str, str, bool, str, str]:
+    """Enhanced auto-initialize with smart DoRA defaults.
+
+    Args:
+        preferred_model_path: Optional model path to use. If provided, overrides auto-discovery.
+
+    Returns:
+        Tuple of (status, model_path, enable_dora, dora_path, default_adapter)
+    """
+    # Use provided path or auto-discover
+    model_path = preferred_model_path if preferred_model_path else find_model_path()
 
     # Get smart DoRA state
     dora_ui_state = get_dora_ui_state()

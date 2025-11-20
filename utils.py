@@ -181,14 +181,53 @@ def _validate_file_path(
 
 
 def validate_model_path(path: str) -> Tuple[bool, str]:
-    """Validate model path with comprehensive checks including directory containment."""
-    return _validate_file_path(
-        path=path,
-        file_type="Model",
-        allowed_extensions=MODEL_CONFIG.SUPPORTED_FORMATS,
-        min_size_mb=MODEL_CONFIG.MIN_FILE_SIZE_MB,
-        max_size_mb=MODEL_CONFIG.MAX_FILE_SIZE_GB * 1024  # Convert GB to MB
-    )
+    """Validate model path (supports both single files and diffusers directories)."""
+    if not path.strip():
+        return False, "Please provide a model path"
+
+    try:
+        # Normalize and validate path
+        normalized_path = os.path.normpath(os.path.abspath(path))
+
+        if not os.path.exists(normalized_path):
+            return False, f"Model not found: {normalized_path}"
+
+        # Support both files (.safetensors) and directories (diffusers format)
+        if os.path.isdir(normalized_path):
+            # Diffusers directory format - check for required subdirectories
+            unet_path = os.path.join(normalized_path, "unet")
+            vae_path = os.path.join(normalized_path, "vae")
+
+            if not os.path.isdir(unet_path):
+                return False, f"Invalid diffusers directory: missing 'unet' subdirectory"
+
+            if not os.path.isdir(vae_path):
+                return False, f"Invalid diffusers directory: missing 'vae' subdirectory"
+
+            # Security: Check directory containment
+            allowed_dirs = _get_allowed_directories()
+            is_allowed, reason = _is_path_in_allowed_directory(normalized_path, allowed_dirs)
+
+            if not is_allowed:
+                return False, f"Security: {reason}"
+
+            if reason:
+                logger.warning(f"Model path security warning: {reason}")
+
+            return True, normalized_path
+
+        else:
+            # Single file format - use original validation
+            return _validate_file_path(
+                path=path,
+                file_type="Model",
+                allowed_extensions=MODEL_CONFIG.SUPPORTED_FORMATS,
+                min_size_mb=MODEL_CONFIG.MIN_FILE_SIZE_MB,
+                max_size_mb=MODEL_CONFIG.MAX_FILE_SIZE_GB * 1024  # Convert GB to MB
+            )
+
+    except Exception as e:
+        return False, f"Path validation error: {str(e)}"
 
 def get_safe_csv_paths() -> Dict[str, str]:
     """Get validated CSV file paths with enhanced security checks."""
@@ -272,40 +311,84 @@ def validate_dora_path(path: str) -> Tuple[bool, str]:
     )
 
 def detect_base_model_precision(model_path: str) -> torch.dtype:
-    """Detect and validate model precision (ONLY BF16 supported for lossless quality)."""
+    """Detect and validate model precision (BF16 or pre-converted FP32 supported)."""
     try:
-        # Read only the safetensors header (tiny compared to full model)
-        with open(model_path, 'rb') as f:
-            # Read header size (8 bytes)
-            header_size = struct.unpack('<Q', f.read(8))[0]
-            # Read header JSON (typically ~350KB vs 7.0GB full model)
-            header_data = json.loads(f.read(header_size).decode('utf-8'))
+        # Check if model_path is a directory (diffusers format) or file (safetensors)
+        if os.path.isdir(model_path):
+            # Diffusers directory format - check UNet config for precision
+            logger.info(f"Detecting precision from diffusers directory: {model_path}")
 
-        # Find first UNet tensor dtype from header metadata
-        unet_tensors = {k: v for k, v in header_data.items()
-                       if k != '__metadata__' and 'model.diffusion_model' in k}
+            # Check for UNet safetensors file
+            unet_path = os.path.join(model_path, "unet", "diffusion_pytorch_model.safetensors")
+            if not os.path.exists(unet_path):
+                # Try sharded format
+                unet_path = os.path.join(model_path, "unet", "diffusion_pytorch_model.fp32.safetensors")
 
-        if unet_tensors:
-            # Get dtype from first UNet tensor
-            dtype_str = list(unet_tensors.values())[0]['dtype']
-            detected_dtype = DTYPE_MAP.get(dtype_str)
+            if os.path.exists(unet_path):
+                # Read safetensors header from UNet
+                with open(unet_path, 'rb') as f:
+                    header_size = struct.unpack('<Q', f.read(8))[0]
+                    header_data = json.loads(f.read(header_size).decode('utf-8'))
 
-            if detected_dtype is None:
-                raise ValueError(
-                    f"Unsupported model precision: {dtype_str}. "
-                    f"Only BF16 model (NoobAI-XL-Vpred-v1.0.safetensors) is supported. "
-                    f"FP16 models are NOT supported due to lossy quantization."
-                )
+                # Get dtype from first tensor
+                for key, value in header_data.items():
+                    if key != '__metadata__' and isinstance(value, dict) and 'dtype' in value:
+                        dtype_str = value['dtype']
+                        detected_dtype = DTYPE_MAP.get(dtype_str)
 
-            if detected_dtype == torch.float16:
-                raise ValueError(
-                    f"FP16 model detected. FP16 models are NOT supported. "
-                    f"Use BF16 model (NoobAI-XL-Vpred-v1.0.safetensors) for lossless quality "
-                    f"and cross-platform parity."
-                )
+                        if detected_dtype == torch.float32:
+                            logger.info(f"FP32 pre-converted model detected (lossless from BF16)")
+                            return detected_dtype
+                        elif detected_dtype == torch.bfloat16:
+                            logger.info(f"BF16 model detected (canonical)")
+                            return detected_dtype
+                        elif detected_dtype == torch.float16:
+                            raise ValueError(
+                                f"FP16 model detected. FP16 models are NOT supported. "
+                                f"Use BF16 model or FP32 pre-converted for lossless quality."
+                            )
+                        break
 
-            logger.info(f"Model precision: {detected_dtype} (validated)")
-            return detected_dtype
+            # Fallback: assume FP32 if it's a known pre-converted directory
+            if "FP32" in os.path.basename(model_path):
+                logger.info(f"FP32 pre-converted model assumed from directory name")
+                return torch.float32
+
+            raise ValueError(f"Could not detect precision from directory: {model_path}")
+
+        else:
+            # Single file format - read safetensors header
+            with open(model_path, 'rb') as f:
+                # Read header size (8 bytes)
+                header_size = struct.unpack('<Q', f.read(8))[0]
+                # Read header JSON (typically ~350KB vs 7.0GB full model)
+                header_data = json.loads(f.read(header_size).decode('utf-8'))
+
+            # Find first UNet tensor dtype from header metadata
+            unet_tensors = {k: v for k, v in header_data.items()
+                           if k != '__metadata__' and 'model.diffusion_model' in k}
+
+            if unet_tensors:
+                # Get dtype from first UNet tensor
+                dtype_str = list(unet_tensors.values())[0]['dtype']
+                detected_dtype = DTYPE_MAP.get(dtype_str)
+
+                if detected_dtype is None:
+                    raise ValueError(
+                        f"Unsupported model precision: {dtype_str}. "
+                        f"Only BF16 model (NoobAI-XL-Vpred-v1.0.safetensors) is supported. "
+                        f"FP16 models are NOT supported due to lossy quantization."
+                    )
+
+                if detected_dtype == torch.float16:
+                    raise ValueError(
+                        f"FP16 model detected. FP16 models are NOT supported. "
+                        f"Use BF16 model (NoobAI-XL-Vpred-v1.0.safetensors) for lossless quality "
+                        f"and cross-platform parity."
+                    )
+
+                logger.info(f"Model precision: {detected_dtype} (validated)")
+                return detected_dtype
 
         # Default to BF16 (canonical format)
         logger.info("Using BF16 as default for SDXL model")

@@ -162,10 +162,17 @@ DEFAULT_NEGATIVE_PROMPT = "worst aesthetic, worst quality, lowres, scan artifact
 DEFAULT_POSITIVE_PREFIX = "very awa, masterpiece, best quality, year 2024, newest, highres, absurdres"
 
 # Model search paths
-# ONLY BF16 model supported for lossless quality and cross-platform parity
+# Supported models:
+# 1. BF16 model (NoobAI-XL-Vpred-v1.0.safetensors) - canonical, single file
+# 2. FP32 pre-converted (NoobAI-XL-Vpred-v1.0-FP32/) - diffusers directory, lossless conversion
 # FP16 models are NOT supported (lossy quantization from BF16)
 _model_filenames = [
-    "NoobAI-XL-Vpred-v1.0.safetensors",  # BF16 (canonical, ONLY supported model)
+    "NoobAI-XL-Vpred-v1.0.safetensors",  # BF16 (canonical single file)
+]
+
+# Also support FP32 pre-converted diffusers directory
+_model_directories = [
+    "NoobAI-XL-Vpred-v1.0-FP32",  # FP32 pre-converted directory
 ]
 
 _search_directories = [
@@ -173,12 +180,19 @@ _search_directories = [
     os.path.join(_script_dir, "models"),               # Models subdirectory
     os.path.join(os.path.expanduser("~"), "Downloads"), # User Downloads
     os.path.join(os.path.expanduser("~"), "Models"),   # User Models directory
+    "/home/sachin/wshp/noob/noobai-xl-precision-analysis",  # FP32 model location
 ]
 
+# Search for both single files and directories
+# Prioritize FP32 directories for better performance on non-BF16 GPUs
 MODEL_SEARCH_PATHS = [
+    os.path.join(directory, dirname)
+    for directory in _search_directories
+    for dirname in _model_directories  # FP32 directories checked first
+] + [
     os.path.join(directory, filename)
     for directory in _search_directories
-    for filename in _model_filenames
+    for filename in _model_filenames  # BF16 files checked second
 ]
 
 # DoRA adapter search directories
