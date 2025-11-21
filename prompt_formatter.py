@@ -45,7 +45,6 @@ class IndexedPromptFormatterData:
 
                 self._build_indices()
                 self.is_loaded = True
-                logger.info("CSV data loaded and indexed successfully.")
 
         except Exception as e:
             logger.error(f"Error loading CSV data: {e}")

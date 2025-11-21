@@ -46,6 +46,9 @@ def cli_list_adapters():
 
 def cli_generate(args):
     """Generate image in CLI mode."""
+    # Set CLI mode flag for error handling behavior
+    os.environ['NOOBAI_CLI_MODE'] = '1'
+
     try:
         # Handle list-adapters option
         if hasattr(args, 'list_dora_adapters') and args.list_dora_adapters:

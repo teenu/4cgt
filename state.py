@@ -125,7 +125,10 @@ class StateManager:
     def finish_generation(self) -> None:
         """Finish generation and return to IDLE state."""
         with self._lock:
-            if self._state != GenerationState.GENERATING:
+            # Set IDLE if we're in any terminal or active state
+            # This ensures state is reset regardless of how generation ended
+            if self._state in [GenerationState.GENERATING, GenerationState.COMPLETED,
+                              GenerationState.INTERRUPTED, GenerationState.ERROR]:
                 self._state = GenerationState.IDLE
 
 # Global state manager instance
@@ -154,9 +157,7 @@ class ResourcePool:
         """Clear resource pool."""
         with self._lock:
             if self._failed_cleanups:
-                cleared_count = self._clear_stale_cleanup_metadata_internal()
-                if cleared_count > 0:
-                    logger.info(f"Cleared {cleared_count} stale cleanup metadata entries")
+                self._clear_stale_cleanup_metadata_internal()
 
             successfully_cleaned = []
             failed_to_clean = {}
@@ -167,11 +168,12 @@ class ResourcePool:
                         resource.close()
                     elif hasattr(resource, 'cleanup'):
                         resource.cleanup()
+                    # Only add to success list if cleanup succeeded
+                    successfully_cleaned.append(key)
                 except Exception as e:
                     logger.warning(f"Error cleaning up resource '{key}': {e}")
-                    failed_to_clean[key] = {'resource': resource, 'error': str(e)}
-
-                successfully_cleaned.append(key)
+                    # Don't store resource object - just metadata to avoid memory leak
+                    failed_to_clean[key] = {'error': str(e), 'type': type(resource).__name__}
 
             for key in successfully_cleaned:
                 del self._resources[key]
@@ -181,12 +183,13 @@ class ResourcePool:
                     self._failed_cleanups[key] = {
                         'error': info['error'],
                         'timestamp': time.time(),
-                        'type': type(info['resource']).__name__
+                        'type': info['type']  # Already extracted type name
                     }
                 logger.error(f"Failed cleanup for {len(failed_to_clean)} resource(s): {list(failed_to_clean.keys())}")
 
-            collected = gc.collect()
-            logger.info(f"Resource pool cleared: {len(successfully_cleaned)} cleaned, {len(failed_to_clean)} failed, {collected} objects freed")
+            gc.collect()
+            if failed_to_clean:
+                logger.warning(f"Resource pool cleared with {len(failed_to_clean)} failures")
 
     def get_failed_cleanups(self) -> Dict[str, Dict[str, Any]]:
         """Get resources that failed to clean up."""

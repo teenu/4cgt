@@ -21,7 +21,6 @@ try:
     SAFETENSORS_AVAILABLE = True
 except ImportError:
     SAFETENSORS_AVAILABLE = False
-    logger.warning("safetensors not available. Adapter precision detection will be limited.")
 
 DTYPE_MAP = {
     'F32': torch.float32,
@@ -129,7 +128,6 @@ try:
     PANDAS_AVAILABLE = True
 except ImportError:
     PANDAS_AVAILABLE = False
-    logger.warning("pandas not available. CSV functionality will be limited.")
 
 # ============================================================================
 # NOOBAI CONFIGURATION

@@ -7,6 +7,24 @@ both GUI and CLI interfaces.
 """
 
 import os
+import sys
+
+# ============================================================================
+# DETERMINISM SETUP - CRITICAL: Must be set before ANY PyTorch imports
+# ============================================================================
+# Configure CUBLAS workspace for deterministic operations
+# This MUST be set before torch is imported to take effect
+if 'CUBLAS_WORKSPACE_CONFIG' not in os.environ:
+    os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
+else:
+    existing_value = os.environ['CUBLAS_WORKSPACE_CONFIG']
+    if existing_value not in [':4096:8', ':16:8']:
+        print(
+            f"WARNING: CUBLAS_WORKSPACE_CONFIG is '{existing_value}' "
+            f"(expected ':4096:8' or ':16:8'). Determinism may be affected.",
+            file=sys.stderr
+        )
+
 import atexit
 from config import logger, OUTPUT_DIR
 from state import perf_monitor, resource_pool
@@ -54,20 +72,15 @@ def main():
             return cli_generate(args)
 
         # GUI mode (default)
-        logger.info("Starting NoobAI XL V-Pred 1.0 - Hash Consistency Edition")
-        logger.info(f"Performance monitoring: {'Enabled' if perf_monitor.enabled else 'Disabled'}")
+        logger.info("Starting NoobAI XL V-Pred 1.0")
         logger.info(f"Output directory: {OUTPUT_DIR}")
 
-        # Display network mode information
         if args.host == "0.0.0.0":
-            logger.info("🌐 LAN Access Mode: Enabled")
-            logger.info("   Interface will be accessible from any device on your local network")
-            logger.info(f"   Server will bind to: 0.0.0.0:{args.port}")
+            logger.info(f"LAN mode enabled on port {args.port}")
         else:
-            logger.info(f"🖥️  Local Access Mode: Running on {args.host}:{args.port}")
+            logger.info(f"Server: {args.host}:{args.port}")
 
         # Pre-load CSV data
-        logger.info("Loading CSV data for prompt formatter...")
         get_prompt_data()
 
         # Create and launch interface (pass model_path if specified)

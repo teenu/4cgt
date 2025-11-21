@@ -109,6 +109,26 @@ def _validate_file_path(
         # Normalize and validate path (resolves all '..' and makes absolute)
         normalized_path = os.path.normpath(os.path.abspath(path))
 
+        # Windows path length validation (applies to all file types)
+        if os.name == 'nt':
+            # Check actual byte length of path for accurate validation
+            try:
+                path_bytes = os.fsencode(normalized_path)
+                path_length = len(path_bytes)
+            except (UnicodeEncodeError, AttributeError):
+                # Fallback to character count if encoding fails
+                path_length = len(normalized_path)
+
+            if path_length > 260 and not normalized_path.startswith('\\\\?\\'):
+                return False, (
+                    f"{file_type} path too long for Windows "
+                    f"({path_length} characters, limit 260).\n"
+                    f"Solutions:\n"
+                    f"1. Move {file_type.lower()} to shorter path (recommended)\n"
+                    f"2. Enable long paths: https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation\n"
+                    f"3. Use extended-length syntax: \\\\?\\{normalized_path}"
+                )
+
         if not os.path.exists(normalized_path):
             return False, f"{file_type} file not found: {normalized_path}"
 
@@ -159,10 +179,20 @@ def validate_model_path(path: str) -> Tuple[bool, str]:
     try:
         normalized_path = os.path.normpath(os.path.abspath(path))
 
+        # Windows path length validation (for both files and directories)
         if os.name == 'nt':
-            if len(normalized_path) > 260 and not normalized_path.startswith('\\\\?\\'):
+            # Check actual byte length of path for accurate validation
+            try:
+                path_bytes = os.fsencode(normalized_path)
+                path_length = len(path_bytes)
+            except (UnicodeEncodeError, AttributeError):
+                # Fallback to character count if encoding fails
+                path_length = len(normalized_path)
+
+            if path_length > 260 and not normalized_path.startswith('\\\\?\\'):
                 return False, (
-                    f"Path too long for Windows ({len(normalized_path)} characters, limit 260).\n"
+                    f"Model path too long for Windows "
+                    f"({path_length} characters, limit 260).\n"
                     f"Solutions:\n"
                     f"1. Move model to shorter path (recommended)\n"
                     f"2. Enable long paths: https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation\n"
@@ -231,16 +261,17 @@ def get_safe_csv_paths() -> Dict[str, str]:
 
     validated_paths = {}
     for key, filename in csv_files.items():
-        # Use basename to strip any path components (security)
+        # Check for path traversal BEFORE basename (security)
+        if '..' in filename or '/' in filename or '\\' in filename:
+            logger.warning(f"Filename contains path components: {filename}")
+            continue
+
+        # Use basename to strip any remaining path components
         safe_filename = os.path.basename(filename)
 
-        # Additional check: verify filename hasn't been manipulated
+        # Verify basename didn't change filename (additional safety check)
         if safe_filename != filename:
-            logger.warning(f"Filename contains path components, using basename only: {filename} -> {safe_filename}")
-
-        # Verify no path traversal characters
-        if '..' in safe_filename or os.sep in safe_filename:
-            logger.warning(f"Invalid filename detected: {safe_filename}")
+            logger.warning(f"Filename was modified by basename: {filename} -> {safe_filename}")
             continue
 
         full_path = os.path.join(style_dir, safe_filename)
