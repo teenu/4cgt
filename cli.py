@@ -49,6 +49,9 @@ def cli_generate(args):
     # Set CLI mode flag for error handling behavior
     os.environ['NOOBAI_CLI_MODE'] = '1'
 
+    # Track engine for cleanup in finally block
+    engine = None
+
     try:
         # Handle list-adapters option
         if hasattr(args, 'list_dora_adapters') and args.list_dora_adapters:
@@ -139,7 +142,6 @@ def cli_generate(args):
         prompt = (args.prompt or "").strip()
         if not prompt:
             print("❌ Please provide a prompt")
-            engine.teardown_engine()
             return 1
 
         # Handle manual DoRA schedule if provided
@@ -216,6 +218,14 @@ def cli_generate(args):
         print(f"❌ Generation failed: {error_msg}")
         logger.error(f"CLI generation error: {e}")
         return 1
+
+    finally:
+        # Always teardown engine if it was created, regardless of success or failure
+        if engine is not None:
+            try:
+                engine.teardown_engine()
+            except Exception as teardown_error:
+                logger.warning(f"Error during engine teardown: {teardown_error}")
 
 def parse_args():
     """Parse command line arguments."""
