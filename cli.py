@@ -417,6 +417,12 @@ Examples:
 
     args = parser.parse_args()
 
+    # Normalize mode flags to a single source of truth (GUI default)
+    if args.cli:
+        args.gui = False
+    else:
+        args.gui = True
+
     # Process --lan flag (convenient shortcut for LAN access)
     if args.lan:
         args.host = "0.0.0.0"
