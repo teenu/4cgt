@@ -165,20 +165,21 @@ class NoobAIEngine:
                     logger.info("FP32 directory model loaded with all components validated as FP32")
 
                 else:
-                    # Single file model (BF16) - load VAE explicitly as FP32
-                    vae = AutoencoderKL.from_single_file(
-                        self.model_path,
-                        torch_dtype=torch.float32,
-                        use_safetensors=True,
-                    )
-
+                    # Single file model (BF16) - load pipeline, then force VAE to FP32
+                    # AutoencoderKL.from_single_file is not supported in older diffusers versions;
+                    # load the full pipeline first, then upcast the VAE for lossless decode.
                     self.pipe = StableDiffusionXLPipeline.from_single_file(
                         self.model_path,
                         torch_dtype=inference_dtype,
-                        vae=vae,
                         use_safetensors=True,
                     )
-                    logger.info(f"Single file model loaded with {inference_dtype} inference, FP32 VAE")
+
+                    # Upcast VAE to FP32 for consistent decoding regardless of inference dtype
+                    try:
+                        self.pipe.vae.to(dtype=torch.float32)
+                        logger.info("Single file model loaded; VAE upcast to FP32 for lossless decode")
+                    except Exception as vae_error:
+                        raise ValueError(f"Failed to upcast VAE to FP32: {vae_error}")
 
                 # Configure scheduler
                 self.pipe.scheduler = EulerDiscreteScheduler.from_config(
