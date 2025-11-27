@@ -570,9 +570,9 @@ def create_interface(model_path: str = None) -> gr.Blocks:
             '''
             return grid_html
 
-        # DoRA visibility toggle with feedback
-        def toggle_dora_visibility(enabled):
-            """Handle DoRA toggle with immediate feedback."""
+        # DoRA visibility toggle with feedback and grid synchronization
+        def toggle_dora_visibility(enabled, toggle_mode, num_steps, current_schedule):
+            """Handle DoRA toggle with immediate feedback and grid synchronization."""
             # Update adapter strength slider visibility
             adapter_strength_update = gr.update(visible=enabled)
 
@@ -591,12 +591,37 @@ def create_interface(model_path: str = None) -> gr.Blocks:
 
             adapter_status_update = gr.update(visible=enabled, value=status_msg)
 
-            return adapter_strength_update, adapter_status_update, dora_start_step_update, dora_start_step_status_update, dora_toggle_mode_update
+            # Handle grid visibility based on enable_dora and toggle_mode
+            # This ensures grid state is consistent when enable_dora is toggled
+            if not enabled:
+                # Hide grid and schedule when DoRA is disabled
+                grid_update = gr.update(visible=False)
+                schedule_update = gr.update(visible=False)
+            elif toggle_mode == "manual":
+                # Show grid when DoRA enabled and manual mode selected
+                try:
+                    steps_int = max(int(num_steps), 1)
+                except (TypeError, ValueError):
+                    steps_int = 1
+                grid_html = generate_dora_grid(steps_int, current_schedule)
+                # Initialize schedule if empty
+                if not current_schedule or not current_schedule.strip():
+                    current_schedule = ", ".join("0" for _ in range(steps_int))
+                grid_update = gr.update(visible=True, value=grid_html)
+                schedule_update = gr.update(visible=True, value=current_schedule)
+            else:
+                # Hide grid for non-manual modes (standard, smart, or None)
+                grid_update = gr.update(visible=False)
+                schedule_update = gr.update(visible=False)
+
+            return (adapter_strength_update, adapter_status_update, dora_start_step_update,
+                    dora_start_step_status_update, dora_toggle_mode_update, grid_update, schedule_update)
 
         enable_dora.change(
             toggle_dora_visibility,
-            inputs=[enable_dora],
-            outputs=[adapter_strength, adapter_status, dora_start_step, dora_start_step_status, dora_toggle_mode]
+            inputs=[enable_dora, dora_toggle_mode, steps, dora_manual_schedule_state],
+            outputs=[adapter_strength, adapter_status, dora_start_step, dora_start_step_status,
+                     dora_toggle_mode, dora_manual_grid, dora_manual_schedule_state]
         )
 
         # Toggle mode handler - disable start step when any toggle mode is active
