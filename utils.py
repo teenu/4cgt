@@ -394,8 +394,11 @@ def detect_base_model_precision(model_path: str) -> torch.dtype:
                 logger.info(f"Model precision: {detected_dtype}")
                 return detected_dtype
 
-        logger.info("Using BF16 as default for SDXL model")
-        return torch.bfloat16
+        # If we reach this point, precision could not be determined safely
+        raise ValueError(
+            "Could not detect model precision. Ensure the model is a supported "
+            "BF16 .safetensors file or FP32 diffusers directory."
+        )
 
     except ValueError:
         raise
