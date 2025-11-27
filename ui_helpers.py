@@ -357,8 +357,13 @@ def initialize_engine(model_path: str, enable_dora: bool = False, dora_path: str
 
     with _engine_lock:
         try:
-            if state_manager.is_generating():
-                return "❌ Cannot reinitialize: Image generation in progress. Please wait for completion or interrupt first."
+            # CRITICAL FIX: Only allow initialization when system is IDLE
+            # This prevents race conditions where teardown occurs while generation
+            # is still in progress (e.g., after interrupt but before finish_generation)
+            current_state = state_manager.get_state()
+            if current_state != GenerationState.IDLE:
+                state_name = current_state.value
+                return f"❌ Cannot reinitialize: System is {state_name}. Please wait for current operation to complete."
 
             if engine is not None:
                 logger.info("Performing teardown of previous engine instance")
