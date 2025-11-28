@@ -556,7 +556,13 @@ def generate_image_with_progress(
     rescale_cfg: float, seed: str, use_custom_resolution: bool, custom_width: int,
     custom_height: int, auto_randomize_seed: bool, adapter_strength: float, enable_dora: bool, dora_start_step: int, dora_toggle_mode: Optional[str], dora_manual_schedule: str, progress=gr.Progress()
 ) -> Tuple[Optional[str], str, str]:
-    """Generate image with progress tracking and return file path for hash consistency."""
+    """Generate image with progress tracking and return file path for hash consistency.
+    
+    Note: State transitions (GENERATING -> COMPLETED/ERROR/INTERRUPTED -> IDLE) are managed
+    by the Gradio event chain (.then handlers), specifically finish_generation().
+    This function sets intermediate states (ERROR, INTERRUPTED) for error cases,
+    and COMPLETED for success, but IDLE transition happens in finish_generation().
+    """
     try:
         # Check engine with thread-safe access and get local reference
         with _engine_lock:
@@ -630,16 +636,24 @@ def generate_image_with_progress(
 
         # Validate save succeeded before calculating hash
         if not saved_path or not os.path.exists(saved_path):
-            raise IOError(f"Failed to save image to {output_path}")
+            state_manager.set_state(GenerationState.ERROR)
+            return None, f"❌ Failed to save image to {output_path}", str(final_seed)
 
-        # Add hash info to the generation info
-        image_hash = calculate_image_hash(saved_path)
-        info += f"\n📄 MD5 Hash: {image_hash}"
+        # Calculate hash with error handling - don't fail generation if hash fails
+        try:
+            image_hash = calculate_image_hash(saved_path)
+            if image_hash == "ERROR":
+                info += f"\n⚠️ Hash calculation failed (file still saved)"
+            else:
+                info += f"\n📄 MD5 Hash: {image_hash}"
+        except Exception as hash_error:
+            logger.warning(f"Hash calculation failed: {hash_error}")
+            info += f"\n⚠️ Hash calculation failed: {hash_error}"
 
         progress(1.0, desc="Complete!")
         state_manager.set_state(GenerationState.COMPLETED)
 
-        return output_path, info, str(final_seed)
+        return saved_path, info, str(final_seed)
 
     except GenerationInterruptedError:
         state_manager.set_state(GenerationState.INTERRUPTED)
@@ -665,8 +679,12 @@ def generate_image_with_progress(
         return None, f"❌ Generation failed: {error_msg}", seed
 
 def finish_generation() -> Tuple[gr.update, gr.update]:
-    """Finish generation UI update."""
-    state_manager.set_state(GenerationState.IDLE)
+    """Finish generation UI update.
+    
+    This is called via Gradio's .then() handler after generate_image_with_progress completes.
+    It transitions the state machine to IDLE regardless of success/failure/interruption.
+    """
+    state_manager.finish_generation()
     return gr.update(visible=False), gr.update(value="🎨 Generate Image", interactive=True)
 
 def interrupt_generation() -> Tuple[gr.update, gr.update]:
