@@ -15,8 +15,14 @@ from ui_helpers import (
     is_engine_ready, auto_initialize, get_dora_ui_state, initialize_engine,
     create_search_ui, connect_search_events, create_clear_handler,
     create_status_updater, compose_final_prompt, start_generation,
-    generate_image_with_progress, finish_generation, interrupt_generation
+    generate_image_with_progress, finish_generation, interrupt_generation,
+    # Queue and gallery handlers
+    add_to_queue, remove_from_queue, clear_queue, set_auto_process,
+    render_queue_html, get_queue_status_html, clear_gallery, select_gallery_image,
+    get_gallery_count_html, finish_generation_with_gallery, process_next_queue_item,
+    trigger_queue_generation
 )
+from config import QUEUE_CONFIG
 
 # ============================================================================
 # GRADIO INTERFACE
@@ -99,6 +105,81 @@ def create_interface(model_path: str = None) -> gr.Blocks:
             transform: scale(1.1);
             box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
+
+        /* Queue System Styles */
+        .queue-container {
+            max-height: 250px;
+            overflow-y: auto;
+            padding: 5px;
+        }
+        .queue-card {
+            background: var(--background-fill-secondary);
+            border: 1px solid var(--border-color-primary);
+            border-radius: 6px;
+            padding: 8px 12px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.15s ease;
+        }
+        .queue-card:hover {
+            background: var(--background-fill-primary);
+            border-color: var(--border-color-accent);
+        }
+        .queue-card-content {
+            flex: 1;
+            overflow: hidden;
+            margin-right: 10px;
+        }
+        .queue-card-position {
+            font-weight: bold;
+            color: var(--color-accent);
+            font-size: 12px;
+            margin-bottom: 2px;
+        }
+        .queue-card-snippet {
+            font-size: 13px;
+            color: var(--body-text-color);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .queue-card-meta {
+            font-size: 11px;
+            color: var(--body-text-color-subdued);
+            margin-top: 2px;
+        }
+        .queue-card-remove {
+            padding: 4px 8px;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 4px;
+            color: rgb(239, 68, 68);
+            cursor: pointer;
+            font-size: 12px;
+            flex-shrink: 0;
+        }
+        .queue-card-remove:hover {
+            background: rgba(239, 68, 68, 0.2);
+        }
+        .queue-empty {
+            text-align: center;
+            color: var(--body-text-color-subdued);
+            padding: 15px;
+            font-style: italic;
+        }
+
+        /* Gallery Carousel Styles */
+        .gallery-carousel {
+            margin-top: 10px;
+        }
+        .gallery-carousel .thumbnails {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding: 5px 0;
+        }
         """,
         head="""
         <script>
@@ -150,6 +231,70 @@ def create_interface(model_path: str = None) -> gr.Blocks:
         setTimeout(function() {
             observer.observe(document.body, { childList: true, subtree: true });
         }, 1000);
+
+        // Queue item removal handler
+        function removeQueueItem(itemId) {
+            // Find the hidden textbox for queue commands
+            const cmdBox = document.getElementById('queue_command_input');
+            if (cmdBox) {
+                const input = cmdBox.querySelector('textarea, input');
+                if (input) {
+                    input.value = itemId;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    // Trigger change event after a short delay
+                    setTimeout(function() {
+                        input.dispatchEvent(new Event('change', { bubbles: true }));
+                    }, 50);
+                }
+            }
+        }
+
+        // Queue auto-processing: click generate button when trigger is set
+        function setupQueueAutoProcess() {
+            const triggerBox = document.getElementById('queue_trigger_input');
+            if (triggerBox && !triggerBox.hasAttribute('data-queue-trigger-initialized')) {
+                triggerBox.setAttribute('data-queue-trigger-initialized', 'true');
+
+                const observer = new MutationObserver(function(mutations) {
+                    mutations.forEach(function(mutation) {
+                        if (mutation.type === 'attributes' || mutation.type === 'childList') {
+                            const input = triggerBox.querySelector('textarea, input');
+                            if (input && input.value === 'trigger') {
+                                // Reset the trigger
+                                input.value = '';
+                                input.dispatchEvent(new Event('input', { bubbles: true }));
+
+                                // Find and click the generate button after a short delay
+                                setTimeout(function() {
+                                    const buttons = document.querySelectorAll('button');
+                                    for (const btn of buttons) {
+                                        if (btn.textContent.includes('Generate') ||
+                                            btn.textContent.includes('Processing queue')) {
+                                            btn.click();
+                                            break;
+                                        }
+                                    }
+                                }, 100);
+                            }
+                        }
+                    });
+                });
+
+                observer.observe(triggerBox, {
+                    attributes: true,
+                    childList: true,
+                    subtree: true,
+                    characterData: true
+                });
+            }
+        }
+
+        // Setup auto-process on load and mutations
+        setTimeout(setupQueueAutoProcess, 1000);
+        const queueObserver = new MutationObserver(setupQueueAutoProcess);
+        setTimeout(function() {
+            queueObserver.observe(document.body, { childList: true, subtree: true });
+        }, 2000);
         </script>
         """
     ) as demo:
@@ -404,6 +549,43 @@ def create_interface(model_path: str = None) -> gr.Blocks:
                     visible=False
                 )
 
+                # Queue controls
+                with gr.Group():
+                    gr.HTML("<h4>📋 Generation Queue</h4>")
+                    with gr.Row():
+                        add_to_queue_btn = gr.Button(
+                            "➕ Add to Queue",
+                            variant="secondary",
+                            size="sm",
+                            scale=2
+                        )
+                        queue_status = gr.HTML(
+                            f'<span style="color: gray;">Queue: 0/{QUEUE_CONFIG.MAX_QUEUE_SIZE}</span>',
+                            scale=1
+                        )
+                    with gr.Row():
+                        auto_process_checkbox = gr.Checkbox(
+                            label="Auto-process queue",
+                            value=True,
+                            scale=2
+                        )
+                        clear_queue_btn = gr.Button("🗑️ Clear", size="sm", scale=1)
+                    queue_display = gr.HTML(
+                        '<div class="queue-empty">Queue is empty - add items with "Add to Queue"</div>'
+                    )
+                    # Hidden input for queue item removal (triggered by JS)
+                    queue_remove_input = gr.Textbox(
+                        value="",
+                        visible=False,
+                        elem_id="queue_command_input"
+                    )
+                    # Hidden input for queue auto-processing trigger (set by Python, detected by JS)
+                    queue_trigger_input = gr.Textbox(
+                        value="",
+                        visible=False,
+                        elem_id="queue_trigger_input"
+                    )
+
             # Output column
             with gr.Column(scale=2):
                 with gr.Group():
@@ -419,6 +601,26 @@ def create_interface(model_path: str = None) -> gr.Blocks:
                         lines=9,  # Increased to show hash
                         interactive=False
                     )
+
+                # Gallery carousel
+                with gr.Group():
+                    gr.HTML("<h4>📷 Session Gallery</h4>")
+                    gallery_carousel = gr.Gallery(
+                        value=[],
+                        columns=5,
+                        rows=1,
+                        height=120,
+                        object_fit="cover",
+                        show_label=False,
+                        allow_preview=False,
+                        elem_classes=["gallery-carousel"]
+                    )
+                    with gr.Row():
+                        gallery_clear_btn = gr.Button("🗑️ Clear Gallery", size="sm", scale=1)
+                        gallery_count = gr.HTML(
+                            f'<span style="color: gray;">0/{QUEUE_CONFIG.MAX_GALLERY_SIZE} images</span>',
+                            scale=2
+                        )
 
         with gr.Row():
             reset_btn = gr.Button("🔄 Reset to Optimal", variant="secondary", size="sm")
@@ -740,7 +942,10 @@ def create_interface(model_path: str = None) -> gr.Blocks:
             show_progress=False
         )
 
-        # Generation handlers
+        # Hidden state for queue processing continuation
+        should_continue_state = gr.State(value=False)
+
+        # Generation handlers with queue/gallery support
         generate_btn.click(
             start_generation,
             outputs=[interrupt_btn, generate_btn]
@@ -749,13 +954,68 @@ def create_interface(model_path: str = None) -> gr.Blocks:
             inputs=gen_inputs,
             outputs=gen_outputs
         ).then(
-            finish_generation,
-            outputs=[interrupt_btn, generate_btn]
+            finish_generation_with_gallery,
+            inputs=[output_image, generation_info, seed],
+            outputs=[
+                interrupt_btn, generate_btn,
+                gallery_carousel, gallery_count,
+                queue_display, queue_status,
+                should_continue_state
+            ]
+        ).then(
+            process_next_queue_item,
+            inputs=[should_continue_state],
+            outputs=[
+                final_prompt, negative_prompt, resolution, cfg_scale, steps,
+                rescale_cfg, seed, use_custom_resolution, custom_width,
+                custom_height, auto_randomize_seed, adapter_strength,
+                enable_dora, dora_start_step, dora_toggle_mode, dora_manual_schedule_state,
+                should_continue_state
+            ]
+        ).then(
+            trigger_queue_generation,
+            inputs=[should_continue_state],
+            outputs=[interrupt_btn, generate_btn, queue_trigger_input]
         )
 
         interrupt_btn.click(
             interrupt_generation,
             outputs=[interrupt_btn, generate_btn]
+        )
+
+        # Queue event handlers
+        add_to_queue_btn.click(
+            add_to_queue,
+            inputs=gen_inputs,
+            outputs=[queue_display, queue_status]
+        )
+
+        clear_queue_btn.click(
+            clear_queue,
+            outputs=[queue_display, queue_status]
+        )
+
+        auto_process_checkbox.change(
+            set_auto_process,
+            inputs=[auto_process_checkbox]
+        )
+
+        # Queue item removal via hidden input (triggered by JS)
+        queue_remove_input.change(
+            remove_from_queue,
+            inputs=[queue_remove_input],
+            outputs=[queue_display, queue_status]
+        )
+
+        # Gallery event handlers
+        gallery_carousel.select(
+            select_gallery_image,
+            outputs=[output_image, generation_info]
+        )
+
+        gallery_clear_btn.click(
+            clear_gallery,
+            outputs=[gallery_carousel, gallery_count]
         )
 
         # Seed management

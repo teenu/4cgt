@@ -2,16 +2,18 @@
 NoobAI XL V-Pred 1.0 - State Management
 
 This module contains state management classes including performance monitoring,
-generation state tracking, and resource pooling.
+generation state tracking, resource pooling, queue management, and gallery management.
 """
 
 import time
 import threading
 import contextlib
 import gc
+import uuid
 from enum import Enum
-from typing import Dict, Any, Callable
-from config import logger
+from dataclasses import dataclass, field
+from typing import Dict, Any, Callable, List, Optional, Tuple
+from config import logger, QUEUE_CONFIG
 
 # ============================================================================
 # PERFORMANCE MONITORING
@@ -227,3 +229,224 @@ class ResourcePool:
 
 # Global resource pool
 resource_pool = ResourcePool()
+
+# ============================================================================
+# QUEUE AND GALLERY DATA STRUCTURES
+# ============================================================================
+
+@dataclass
+class QueueItem:
+    """Represents a queued generation request."""
+    id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    timestamp: float = field(default_factory=time.time)
+
+    # Generation parameters
+    prompt: str = ""
+    negative_prompt: str = ""
+    resolution: str = ""
+    cfg_scale: float = 4.2
+    steps: int = 34
+    rescale_cfg: float = 0.55
+    seed: str = ""
+    use_custom_resolution: bool = False
+    custom_width: int = 1216
+    custom_height: int = 832
+    auto_randomize_seed: bool = True
+    adapter_strength: float = 1.0
+    enable_dora: bool = False
+    dora_start_step: int = 1
+    dora_toggle_mode: Optional[str] = None
+    dora_manual_schedule: str = ""
+
+    def get_prompt_snippet(self, max_length: int = 50) -> str:
+        """Return truncated prompt for display."""
+        if len(self.prompt) <= max_length:
+            return self.prompt
+        return self.prompt[:max_length-3] + "..."
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for generation."""
+        return {
+            'id': self.id,
+            'timestamp': self.timestamp,
+            'prompt': self.prompt,
+            'negative_prompt': self.negative_prompt,
+            'resolution': self.resolution,
+            'cfg_scale': self.cfg_scale,
+            'steps': self.steps,
+            'rescale_cfg': self.rescale_cfg,
+            'seed': self.seed,
+            'use_custom_resolution': self.use_custom_resolution,
+            'custom_width': self.custom_width,
+            'custom_height': self.custom_height,
+            'auto_randomize_seed': self.auto_randomize_seed,
+            'adapter_strength': self.adapter_strength,
+            'enable_dora': self.enable_dora,
+            'dora_start_step': self.dora_start_step,
+            'dora_toggle_mode': self.dora_toggle_mode,
+            'dora_manual_schedule': self.dora_manual_schedule
+        }
+
+
+@dataclass
+class GalleryItem:
+    """Represents an image in the gallery."""
+    id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    timestamp: float = field(default_factory=time.time)
+    image_path: str = ""
+    seed: int = 0
+    prompt: str = ""
+    generation_info: str = ""
+
+    def get_prompt_snippet(self, max_length: int = 50) -> str:
+        """Return truncated prompt for tooltip."""
+        if len(self.prompt) <= max_length:
+            return self.prompt
+        return self.prompt[:max_length-3] + "..."
+
+
+# ============================================================================
+# QUEUE MANAGER
+# ============================================================================
+
+class QueueManager:
+    """Thread-safe queue management for generation requests."""
+
+    def __init__(self, max_size: int = 10):
+        self._lock = threading.Lock()
+        self._queue: List[QueueItem] = []
+        self._max_size = max_size
+        self._auto_process = True
+
+    def add(self, item: QueueItem) -> Tuple[bool, str]:
+        """Add item to queue. Returns (success, message)."""
+        with self._lock:
+            if len(self._queue) >= self._max_size:
+                return False, f"Queue full (max {self._max_size} items)"
+            self._queue.append(item)
+            return True, f"Added to queue (position {len(self._queue)})"
+
+    def remove(self, item_id: str) -> bool:
+        """Remove item from queue by ID."""
+        with self._lock:
+            for i, item in enumerate(self._queue):
+                if item.id == item_id:
+                    self._queue.pop(i)
+                    return True
+            return False
+
+    def pop_next(self) -> Optional[QueueItem]:
+        """Get and remove next item from queue."""
+        with self._lock:
+            if self._queue:
+                return self._queue.pop(0)
+            return None
+
+    def peek_next(self) -> Optional[QueueItem]:
+        """View next item without removing."""
+        with self._lock:
+            if self._queue:
+                return self._queue[0]
+            return None
+
+    def clear(self) -> int:
+        """Clear all items from queue. Returns count removed."""
+        with self._lock:
+            count = len(self._queue)
+            self._queue.clear()
+            return count
+
+    def get_all(self) -> List[QueueItem]:
+        """Get copy of all queue items."""
+        with self._lock:
+            return list(self._queue)
+
+    def size(self) -> int:
+        """Get current queue size."""
+        with self._lock:
+            return len(self._queue)
+
+    def is_empty(self) -> bool:
+        """Check if queue is empty."""
+        with self._lock:
+            return len(self._queue) == 0
+
+    def set_auto_process(self, enabled: bool) -> None:
+        """Enable/disable auto-processing."""
+        with self._lock:
+            self._auto_process = enabled
+
+    def is_auto_process_enabled(self) -> bool:
+        """Check if auto-processing is enabled."""
+        with self._lock:
+            return self._auto_process
+
+    def get_max_size(self) -> int:
+        """Get maximum queue size."""
+        return self._max_size
+
+
+# ============================================================================
+# GALLERY MANAGER
+# ============================================================================
+
+class GalleryManager:
+    """Thread-safe gallery management for session images."""
+
+    def __init__(self, max_size: int = 10):
+        self._lock = threading.Lock()
+        self._items: List[GalleryItem] = []
+        self._max_size = max_size
+
+    def add(self, item: GalleryItem) -> None:
+        """Add item to gallery, removing oldest if at capacity."""
+        with self._lock:
+            if len(self._items) >= self._max_size:
+                self._items.pop(0)  # Remove oldest
+            self._items.append(item)
+
+    def get_all(self) -> List[GalleryItem]:
+        """Get copy of all gallery items."""
+        with self._lock:
+            return list(self._items)
+
+    def get_by_id(self, item_id: str) -> Optional[GalleryItem]:
+        """Get gallery item by ID."""
+        with self._lock:
+            for item in self._items:
+                if item.id == item_id:
+                    return item
+            return None
+
+    def get_by_index(self, index: int) -> Optional[GalleryItem]:
+        """Get gallery item by index."""
+        with self._lock:
+            if 0 <= index < len(self._items):
+                return self._items[index]
+            return None
+
+    def get_paths(self) -> List[str]:
+        """Get list of all image paths."""
+        with self._lock:
+            return [item.image_path for item in self._items if item.image_path]
+
+    def clear(self) -> int:
+        """Clear gallery. Returns count removed."""
+        with self._lock:
+            count = len(self._items)
+            self._items.clear()
+            return count
+
+    def size(self) -> int:
+        """Get current gallery size."""
+        with self._lock:
+            return len(self._items)
+
+    def get_max_size(self) -> int:
+        """Get maximum gallery size."""
+        return self._max_size
+
+
+# Global queue and gallery manager instances
+queue_manager = QueueManager(max_size=QUEUE_CONFIG.MAX_QUEUE_SIZE)
+gallery_manager = GalleryManager(max_size=QUEUE_CONFIG.MAX_GALLERY_SIZE)

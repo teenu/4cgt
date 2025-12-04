@@ -79,10 +79,18 @@ class SearchScoring:
     PREFIX_MATCH: int = 2
     CONTAINS_MATCH: int = 1
 
+@dataclass
+class QueueConfig:
+    """Queue and gallery configuration constants."""
+    MAX_QUEUE_SIZE: int = 10
+    MAX_GALLERY_SIZE: int = 10
+    PROMPT_SNIPPET_LENGTH: int = 50  # Characters to show in compact view
+
 # Create configuration instances
 MODEL_CONFIG = ModelConfig()
 GEN_CONFIG = GenerationConfig()
 SEARCH_CONFIG = SearchConfig()
+QUEUE_CONFIG = QueueConfig()
 
 # Output directory for generated images
 # Use 'outputs' subdirectory in script location for persistent storage

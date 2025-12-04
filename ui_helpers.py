@@ -708,3 +708,352 @@ def interrupt_generation() -> Tuple[gr.update, gr.update]:
     """Interrupt generation."""
     state_manager.request_interrupt()
     return gr.update(visible=False), gr.update(value="🔄 Interrupting...", interactive=False)
+
+# ============================================================================
+# QUEUE HANDLERS
+# ============================================================================
+
+def add_to_queue(
+    prompt: str, negative_prompt: str, resolution: str, cfg_scale: float,
+    steps: int, rescale_cfg: float, seed: str, use_custom_resolution: bool,
+    custom_width: int, custom_height: int, auto_randomize_seed: bool,
+    adapter_strength: float, enable_dora: bool, dora_start_step: int,
+    dora_toggle_mode: Optional[str], dora_manual_schedule: str
+) -> Tuple[str, str]:
+    """Add current settings to generation queue.
+
+    Returns:
+        Tuple of (queue_html, status_html)
+    """
+    from state import queue_manager, QueueItem
+    from config import QUEUE_CONFIG
+
+    if not prompt.strip():
+        return render_queue_html(), '<span style="color: red;">❌ Cannot queue: empty prompt</span>'
+
+    item = QueueItem(
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        resolution=resolution,
+        cfg_scale=float(cfg_scale) if cfg_scale else 4.2,
+        steps=int(steps) if steps else 34,
+        rescale_cfg=float(rescale_cfg) if rescale_cfg else 0.55,
+        seed=seed,
+        use_custom_resolution=use_custom_resolution,
+        custom_width=int(custom_width) if custom_width else 1216,
+        custom_height=int(custom_height) if custom_height else 832,
+        auto_randomize_seed=auto_randomize_seed,
+        adapter_strength=float(adapter_strength) if adapter_strength else 1.0,
+        enable_dora=enable_dora,
+        dora_start_step=int(dora_start_step) if dora_start_step else 1,
+        dora_toggle_mode=dora_toggle_mode,
+        dora_manual_schedule=dora_manual_schedule or ""
+    )
+
+    success, message = queue_manager.add(item)
+    if success:
+        status = f'<span style="color: green;">✅ Queue: {queue_manager.size()}/{QUEUE_CONFIG.MAX_QUEUE_SIZE}</span>'
+    else:
+        status = f'<span style="color: red;">❌ {message}</span>'
+
+    return render_queue_html(), status
+
+
+def remove_from_queue(item_id: str) -> Tuple[str, str]:
+    """Remove item from queue by ID.
+
+    Returns:
+        Tuple of (queue_html, status_html)
+    """
+    from state import queue_manager
+    from config import QUEUE_CONFIG
+
+    queue_manager.remove(item_id)
+    status = f'<span style="color: gray;">Queue: {queue_manager.size()}/{QUEUE_CONFIG.MAX_QUEUE_SIZE}</span>'
+
+    return render_queue_html(), status
+
+
+def clear_queue() -> Tuple[str, str]:
+    """Clear all items from queue.
+
+    Returns:
+        Tuple of (queue_html, status_html)
+    """
+    from state import queue_manager
+    from config import QUEUE_CONFIG
+
+    count = queue_manager.clear()
+    status = f'<span style="color: gray;">Queue: 0/{QUEUE_CONFIG.MAX_QUEUE_SIZE} (cleared {count})</span>'
+
+    return render_queue_html(), status
+
+
+def set_auto_process(enabled: bool) -> None:
+    """Enable/disable auto-processing of queue."""
+    from state import queue_manager
+    queue_manager.set_auto_process(enabled)
+
+
+def render_queue_html() -> str:
+    """Render queue items as HTML cards."""
+    from state import queue_manager
+    from config import QUEUE_CONFIG
+
+    items = queue_manager.get_all()
+
+    if not items:
+        return '<div class="queue-empty">Queue is empty - add items with "Add to Queue"</div>'
+
+    html_parts = []
+    for i, item in enumerate(items):
+        snippet = item.get_prompt_snippet(QUEUE_CONFIG.PROMPT_SNIPPET_LENGTH)
+        position = i + 1
+        dora_label = "DoRA" if item.enable_dora else "No DoRA"
+
+        html_parts.append(f'''
+        <div class="queue-card" data-id="{item.id}">
+            <div class="queue-card-content">
+                <div class="queue-card-position">#{position}</div>
+                <div class="queue-card-snippet">{snippet}</div>
+                <div class="queue-card-meta">
+                    Steps: {item.steps} | CFG: {item.cfg_scale} | {dora_label}
+                </div>
+            </div>
+            <button class="queue-card-remove" onclick="removeQueueItem('{item.id}')">✕</button>
+        </div>
+        ''')
+
+    return f'<div class="queue-container">{"".join(html_parts)}</div>'
+
+
+def get_queue_status_html() -> str:
+    """Get HTML for queue status."""
+    from state import queue_manager
+    from config import QUEUE_CONFIG
+
+    size = queue_manager.size()
+    max_size = QUEUE_CONFIG.MAX_QUEUE_SIZE
+    return f'<span style="color: gray;">Queue: {size}/{max_size}</span>'
+
+
+def get_next_queue_item() -> Optional[Dict[str, Any]]:
+    """Get next item from queue for processing.
+
+    Returns:
+        Dictionary of generation parameters or None if queue empty
+    """
+    from state import queue_manager
+
+    item = queue_manager.pop_next()
+    if item:
+        return item.to_dict()
+    return None
+
+
+def should_process_queue() -> bool:
+    """Check if queue processing should continue.
+
+    Returns:
+        True if auto-process enabled and queue has items
+    """
+    from state import queue_manager
+    return queue_manager.is_auto_process_enabled() and not queue_manager.is_empty()
+
+
+# ============================================================================
+# GALLERY HANDLERS
+# ============================================================================
+
+def add_to_gallery(image_path: str, seed: int, prompt: str, generation_info: str) -> List[str]:
+    """Add completed image to gallery.
+
+    Args:
+        image_path: Path to generated image
+        seed: Seed used for generation
+        prompt: Generation prompt
+        generation_info: Full generation info string
+
+    Returns:
+        List of all gallery image paths for Gradio Gallery component
+    """
+    from state import gallery_manager, GalleryItem
+
+    if not image_path or not os.path.exists(image_path):
+        return gallery_manager.get_paths()
+
+    item = GalleryItem(
+        image_path=image_path,
+        seed=seed,
+        prompt=prompt,
+        generation_info=generation_info
+    )
+
+    gallery_manager.add(item)
+    return gallery_manager.get_paths()
+
+
+def clear_gallery() -> Tuple[List[str], str]:
+    """Clear all items from gallery.
+
+    Returns:
+        Tuple of (empty_paths_list, count_html)
+    """
+    from state import gallery_manager
+    from config import QUEUE_CONFIG
+
+    count = gallery_manager.clear()
+    return [], f'<span style="color: gray;">0/{QUEUE_CONFIG.MAX_GALLERY_SIZE} images (cleared {count})</span>'
+
+
+def select_gallery_image(evt: gr.SelectData) -> Tuple[Optional[str], str]:
+    """Handle gallery image selection.
+
+    Args:
+        evt: Gradio select event with index
+
+    Returns:
+        Tuple of (image_path, generation_info)
+    """
+    from state import gallery_manager
+
+    item = gallery_manager.get_by_index(evt.index)
+    if item:
+        return item.image_path, item.generation_info
+    return None, ""
+
+
+def get_gallery_count_html() -> str:
+    """Get HTML for gallery item count."""
+    from state import gallery_manager
+    from config import QUEUE_CONFIG
+
+    count = gallery_manager.size()
+    max_size = QUEUE_CONFIG.MAX_GALLERY_SIZE
+    return f'<span style="color: gray;">{count}/{max_size} images</span>'
+
+
+# ============================================================================
+# MODIFIED GENERATION FLOW WITH QUEUE/GALLERY SUPPORT
+# ============================================================================
+
+def finish_generation_with_gallery(
+    saved_image_path: Optional[str],
+    generation_info: str,
+    final_seed: str
+) -> Tuple[gr.update, gr.update, List[str], str, str, str, bool]:
+    """Finish generation and handle queue/gallery updates.
+
+    Returns:
+        Tuple of:
+        - interrupt_btn update
+        - generate_btn update
+        - gallery images list
+        - gallery count html
+        - queue html
+        - queue status html
+        - should_continue (True if more queue items to process)
+    """
+    from state import gallery_manager, queue_manager
+
+    # Reset generation state
+    state_manager.finish_generation()
+
+    # Add to gallery if successful
+    if saved_image_path and os.path.exists(saved_image_path):
+        try:
+            seed_int = int(final_seed) if final_seed.isdigit() else 0
+        except (ValueError, TypeError):
+            seed_int = 0
+
+        # Extract prompt from generation_info (look for actual content)
+        prompt_line = ""
+        for line in generation_info.split('\n'):
+            line = line.strip()
+            # Skip status/info lines
+            if line and not line.startswith(('✅', '⚠️', '🌱', '🎯', '⚪', '📄', '❌', '📊')):
+                prompt_line = line
+                break
+
+        add_to_gallery(saved_image_path, seed_int, prompt_line, generation_info)
+
+    gallery_paths = gallery_manager.get_paths()
+    gallery_count = get_gallery_count_html()
+    queue_html = render_queue_html()
+    queue_status = get_queue_status_html()
+
+    # Check if we should continue processing queue
+    should_continue = should_process_queue()
+
+    return (
+        gr.update(visible=False),
+        gr.update(value="🎨 Generate Image", interactive=True),
+        gallery_paths,
+        gallery_count,
+        queue_html,
+        queue_status,
+        should_continue
+    )
+
+
+def process_next_queue_item(should_continue: bool) -> Tuple:
+    """Load next queue item into generation inputs if auto-process enabled.
+
+    Returns:
+        Tuple of all generation input values + trigger_generation flag
+    """
+    if not should_continue:
+        # Return unchanged updates, no trigger
+        return (
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(),
+            False  # trigger_generation
+        )
+
+    next_item = get_next_queue_item()
+    if not next_item:
+        return (
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(),
+            False
+        )
+
+    # Return values to populate inputs, with trigger
+    return (
+        next_item['prompt'],
+        next_item['negative_prompt'],
+        next_item['resolution'],
+        next_item['cfg_scale'],
+        next_item['steps'],
+        next_item['rescale_cfg'],
+        next_item['seed'],
+        next_item['use_custom_resolution'],
+        next_item['custom_width'],
+        next_item['custom_height'],
+        next_item['auto_randomize_seed'],
+        next_item['adapter_strength'],
+        next_item['enable_dora'],
+        next_item['dora_start_step'],
+        next_item['dora_toggle_mode'],
+        next_item['dora_manual_schedule'],
+        True  # trigger_generation
+    )
+
+
+def trigger_queue_generation(trigger: bool) -> Tuple[gr.update, gr.update, str]:
+    """Trigger generation if queue item was loaded.
+
+    Args:
+        trigger: Whether to trigger generation
+
+    Returns:
+        Tuple of (interrupt_btn update, generate_btn update, trigger_input_value)
+    """
+    if trigger:
+        # Return "trigger" value which JS will detect and click the generate button
+        return gr.update(), gr.update(value="🎨 Generate Image", interactive=True), "trigger"
+    return gr.update(), gr.update(), ""
