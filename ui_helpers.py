@@ -851,7 +851,7 @@ def render_queue_html() -> str:
                     Steps: {item.steps} | CFG: {item.cfg_scale} | {dora_label}
                 </div>
             </div>
-            <button class="queue-card-remove" onclick="removeQueueItem('{item.id}')">✕</button>
+            <button class="queue-card-remove" title="Remove from queue">✕</button>
         </div>
         ''')
 

@@ -331,19 +331,67 @@ def validate_dora_path(path: str) -> Tuple[bool, str]:
 
 def detect_base_model_precision(model_path: str) -> torch.dtype:
     """Detect and validate model precision.
-    
+
     Returns the detected dtype or raises ValueError for unsupported/invalid models.
     FP16 models are explicitly rejected with a clear error message.
+
+    Supports:
+    - Single safetensors files (diffusion_pytorch_model.safetensors)
+    - Sharded safetensors files (diffusion_pytorch_model-00001-of-00002.safetensors)
+    - FP32 variant files (diffusion_pytorch_model.fp32.safetensors)
     """
     try:
         if os.path.isdir(model_path):
             logger.info(f"Detecting precision from diffusers directory: {model_path}")
 
-            unet_path = os.path.join(model_path, "unet", "diffusion_pytorch_model.safetensors")
-            if not os.path.exists(unet_path):
-                unet_path = os.path.join(model_path, "unet", "diffusion_pytorch_model.fp32.safetensors")
+            unet_dir = os.path.join(model_path, "unet")
+            unet_path = None
 
-            if os.path.exists(unet_path):
+            # Priority order for finding safetensors file:
+            # 1. Single file: diffusion_pytorch_model.safetensors
+            # 2. FP32 variant: diffusion_pytorch_model.fp32.safetensors
+            # 3. Sharded files: diffusion_pytorch_model-00001-of-*.safetensors (via index.json)
+
+            single_file = os.path.join(unet_dir, "diffusion_pytorch_model.safetensors")
+            fp32_file = os.path.join(unet_dir, "diffusion_pytorch_model.fp32.safetensors")
+            index_file = os.path.join(unet_dir, "diffusion_pytorch_model.safetensors.index.json")
+
+            if os.path.exists(single_file):
+                unet_path = single_file
+                logger.debug(f"Using single safetensors file: {unet_path}")
+            elif os.path.exists(fp32_file):
+                unet_path = fp32_file
+                logger.debug(f"Using FP32 safetensors file: {unet_path}")
+            elif os.path.exists(index_file):
+                # Handle sharded safetensors: read index.json to find first shard
+                try:
+                    with open(index_file, 'r') as f:
+                        index_data = json.load(f)
+
+                    # Index file has format: {"metadata": {...}, "weight_map": {"layer_name": "shard_file.safetensors"}}
+                    weight_map = index_data.get('weight_map', {})
+                    if weight_map:
+                        # Get the first shard file from weight_map
+                        shard_files = set(weight_map.values())
+                        # Sort to get consistent ordering (first shard is usually -00001-)
+                        sorted_shards = sorted(shard_files)
+                        if sorted_shards:
+                            first_shard = sorted_shards[0]
+                            unet_path = os.path.join(unet_dir, first_shard)
+                            logger.debug(f"Using sharded safetensors (first shard): {unet_path}")
+                except (json.JSONDecodeError, KeyError, TypeError) as e:
+                    logger.warning(f"Could not parse index.json: {e}")
+
+            # Fallback: look for any sharded safetensors file pattern
+            if unet_path is None or not os.path.exists(unet_path):
+                import glob as glob_module
+                shard_pattern = os.path.join(unet_dir, "diffusion_pytorch_model-*-of-*.safetensors")
+                shard_files = sorted(glob_module.glob(shard_pattern))
+                if shard_files:
+                    unet_path = shard_files[0]  # Use first shard
+                    logger.debug(f"Using sharded safetensors (glob fallback): {unet_path}")
+
+            if unet_path and os.path.exists(unet_path):
                 with open(unet_path, 'rb') as f:
                     header_size = struct.unpack('<Q', f.read(8))[0]
                     header_data = json.loads(f.read(header_size).decode('utf-8'))
@@ -360,18 +408,19 @@ def detect_base_model_precision(model_path: str) -> torch.dtype:
                                 "Please use the BF16 (.safetensors) or FP32 (directory) model format."
                             )
                         elif detected_dtype == torch.float32:
-                            logger.info("FP32 model detected")
+                            logger.info("FP32 model detected from safetensors header")
                             return detected_dtype
                         elif detected_dtype == torch.bfloat16:
-                            logger.info("BF16 model detected")
+                            logger.info("BF16 model detected from safetensors header")
                             return detected_dtype
                         elif detected_dtype is None:
                             raise ValueError(f"Unsupported model precision: {dtype_str}")
                         break
 
+            # Only fall back to directory name if no safetensors files found at all
             if "FP32" in os.path.basename(model_path):
                 logger.warning(
-                    f"Could not detect precision from safetensors header for {model_path}. "
+                    f"No safetensors files found in {model_path}/unet/. "
                     "Falling back to FP32 based on directory name - verify model format if issues occur."
                 )
                 return torch.float32

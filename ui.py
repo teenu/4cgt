@@ -170,15 +170,59 @@ def create_interface(model_path: str = None) -> gr.Blocks:
             font-style: italic;
         }
 
-        /* Gallery Carousel Styles */
-        .gallery-carousel {
+        /* Session Gallery Styles - Optimized for 1024x1024 images scaled to ~256px thumbnails */
+        .session-gallery-container {
             margin-top: 10px;
+            max-height: 580px;  /* Fits ~2 rows of 256px thumbnails + padding */
+            overflow-y: auto;
+            overflow-x: hidden;
+            border: 1px solid var(--border-color-primary);
+            border-radius: 8px;
+            padding: 10px;
+            background: var(--background-fill-secondary);
         }
-        .gallery-carousel .thumbnails {
-            display: flex;
-            gap: 8px;
-            overflow-x: auto;
-            padding: 5px 0;
+        .session-gallery-container .gallery {
+            display: grid !important;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 12px;
+        }
+        .session-gallery-container .gallery > div {
+            aspect-ratio: 1;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 2px solid transparent;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        .session-gallery-container .gallery > div:hover {
+            border-color: var(--color-accent);
+            transform: scale(1.02);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .session-gallery-container .gallery > div.selected {
+            border-color: var(--color-accent);
+            box-shadow: 0 0 0 3px rgba(var(--color-accent-rgb), 0.3);
+        }
+        .session-gallery-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain !important;  /* Scale without cropping */
+            background: var(--background-fill-primary);
+        }
+        /* Scrollbar styling */
+        .session-gallery-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        .session-gallery-container::-webkit-scrollbar-track {
+            background: var(--background-fill-secondary);
+            border-radius: 4px;
+        }
+        .session-gallery-container::-webkit-scrollbar-thumb {
+            background: var(--border-color-primary);
+            border-radius: 4px;
+        }
+        .session-gallery-container::-webkit-scrollbar-thumb:hover {
+            background: var(--border-color-accent);
         }
         """,
         head="""
@@ -243,74 +287,94 @@ def create_interface(model_path: str = None) -> gr.Blocks:
             doraObserver.observe(document.body, { childList: true, subtree: true });
         }, 1000);
 
-        // Queue item removal handler
+        // Queue item removal handler - use event delegation for dynamically created buttons
         function removeQueueItem(itemId) {
             // Find the hidden textbox for queue commands
             const cmdBox = document.getElementById('queue_command_input');
             if (cmdBox) {
                 const input = cmdBox.querySelector('textarea, input');
                 if (input) {
-                    input.value = itemId;
+                    console.log('[NoobAI Queue] Removing item:', itemId);
+                    // Set value and dispatch events
+                    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+                        window.HTMLInputElement.prototype, 'value'
+                    ).set;
+                    nativeInputValueSetter.call(input, itemId);
                     input.dispatchEvent(new Event('input', { bubbles: true }));
                     // Trigger change event after a short delay
                     setTimeout(function() {
                         input.dispatchEvent(new Event('change', { bubbles: true }));
-                    }, 50);
+                    }, 100);
                 }
             }
         }
 
-        // Queue auto-processing: click generate button when trigger is set
-        function setupQueueAutoProcess() {
-            const triggerBox = document.getElementById('queue_trigger_input');
-            if (triggerBox && !triggerBox.hasAttribute('data-queue-trigger-initialized')) {
-                triggerBox.setAttribute('data-queue-trigger-initialized', 'true');
+        // Use event delegation for queue remove buttons (handles dynamically created elements)
+        document.addEventListener('click', function(e) {
+            // Check if clicked element is a queue remove button
+            const btn = e.target.closest('.queue-card-remove');
+            if (btn) {
+                // Get the item ID from the parent queue card's data attribute
+                const card = btn.closest('.queue-card');
+                if (card && card.dataset.id) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    removeQueueItem(card.dataset.id);
+                }
+            }
+        });
 
-                var queueTriggerObserver = new MutationObserver(function(mutations) {
-                    mutations.forEach(function(mutation) {
-                        if (mutation.type === 'attributes' || mutation.type === 'childList') {
-                            const input = triggerBox.querySelector('textarea, input');
-                            if (input && input.value === 'trigger') {
-                                // Reset the trigger
-                                input.value = '';
-                                input.dispatchEvent(new Event('input', { bubbles: true }));
+        // Queue auto-processing: use a more direct approach
+        // Instead of observing the trigger input, we'll use a timer-based check
+        // This is more reliable across different browser/Gradio versions
+        var queueAutoProcessInterval = null;
 
-                                // Find and click the generate button after a short delay
-                                setTimeout(function() {
-                                    const buttons = document.querySelectorAll('button');
-                                    for (const btn of buttons) {
-                                        if (btn.textContent.includes('Generate') ||
-                                            btn.textContent.includes('Processing queue')) {
-                                            btn.click();
-                                            break;
-                                        }
-                                    }
-                                }, 100);
+        function startQueueAutoProcess() {
+            if (queueAutoProcessInterval) return; // Already running
+
+            queueAutoProcessInterval = setInterval(function() {
+                const triggerBox = document.getElementById('queue_trigger_input');
+                if (!triggerBox) return;
+
+                const input = triggerBox.querySelector('textarea, input');
+                if (input && input.value === 'trigger') {
+                    // Reset the trigger immediately
+                    input.value = '';
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+
+                    // Find and click the generate button
+                    setTimeout(function() {
+                        // Look for the generate button by its text content
+                        const buttons = document.querySelectorAll('button');
+                        for (const btn of buttons) {
+                            const text = btn.textContent || '';
+                            if (text.includes('Generate Image') && !text.includes('Not Ready')) {
+                                // Check if button is enabled
+                                if (!btn.disabled && btn.getAttribute('aria-disabled') !== 'true') {
+                                    console.log('[NoobAI Queue] Auto-triggering next generation');
+                                    btn.click();
+                                    break;
+                                }
                             }
                         }
-                    });
-                });
-                window.noobaiObservers.push(queueTriggerObserver);
+                    }, 200);
+                }
+            }, 250); // Check every 250ms
+        }
 
-                queueTriggerObserver.observe(triggerBox, {
-                    attributes: true,
-                    childList: true,
-                    subtree: true,
-                    characterData: true
-                });
+        function stopQueueAutoProcess() {
+            if (queueAutoProcessInterval) {
+                clearInterval(queueAutoProcessInterval);
+                queueAutoProcessInterval = null;
             }
         }
 
-        // Setup auto-process on load and mutations
-        setTimeout(setupQueueAutoProcess, 1000);
-        var queueObserver = new MutationObserver(setupQueueAutoProcess);
-        window.noobaiObservers.push(queueObserver);
-        setTimeout(function() {
-            queueObserver.observe(document.body, { childList: true, subtree: true });
-        }, 2000);
+        // Start auto-processing on page load
+        setTimeout(startQueueAutoProcess, 1500);
 
-        // Cleanup observers on page unload to prevent memory leaks
+        // Cleanup observers and intervals on page unload to prevent memory leaks
         window.addEventListener('beforeunload', function() {
+            stopQueueAutoProcess();
             if (window.noobaiObservers) {
                 window.noobaiObservers.forEach(function(obs) {
                     try { obs.disconnect(); } catch(e) {}
@@ -499,10 +563,11 @@ def create_interface(model_path: str = None) -> gr.Blocks:
                                 step=1,
                                 value=OPTIMAL_SETTINGS['dora_start_step'],
                                 visible=default_enable_dora,
+                                interactive=False,  # Disabled by default when optimized mode is active
                                 info="Step at which DoRA adapter activates"
                             )
                             dora_start_step_status = gr.HTML(
-                                '<div style="color: gray;">⚪ Optimized toggle active (adjust to override)</div>',
+                                '<div style="color: green;">✅ Optimized: Using validated parameters (CFG=4.2, Steps=34)</div>',
                                 visible=default_enable_dora
                             )
 
@@ -549,7 +614,8 @@ def create_interface(model_path: str = None) -> gr.Blocks:
                         with gr.Column(scale=3):
                             seed = gr.Textbox(
                                 value=str(random.randint(0, 2**32-1)),
-                                label="Seed"
+                                label="Seed (for next generation)",
+                                info="Edit this while generation is in progress to queue a different seed"
                             )
                             auto_randomize_seed = gr.Checkbox(
                                 label="🔄 Ignore seed box and use random for next run",
@@ -557,6 +623,14 @@ def create_interface(model_path: str = None) -> gr.Blocks:
                             )
                         with gr.Column(scale=1):
                             random_seed_btn = gr.Button("🎲 New Random Seed", size="lg")
+                    # Separate display for last used seed (updated after generation completes)
+                    last_seed_display = gr.Textbox(
+                        value="(none yet)",
+                        label="Last Generated Seed",
+                        interactive=False,
+                        visible=True,
+                        info="The seed used in the most recent generation"
+                    )
 
                 # Generate button
                 generate_btn = gr.Button(
@@ -624,19 +698,21 @@ def create_interface(model_path: str = None) -> gr.Blocks:
                         interactive=False
                     )
 
-                # Gallery carousel
+                # Session Gallery - auto-scaling thumbnails with scroll support
                 with gr.Group():
                     gr.HTML("<h4>📷 Session Gallery</h4>")
-                    gallery_carousel = gr.Gallery(
-                        value=[],
-                        columns=5,
-                        rows=1,
-                        height=120,
-                        object_fit="cover",
-                        show_label=False,
-                        allow_preview=False,
-                        elem_classes=["gallery-carousel"]
-                    )
+                    with gr.Column(elem_classes=["session-gallery-container"]):
+                        gallery_carousel = gr.Gallery(
+                            value=[],
+                            columns=4,  # 4 columns for ~256px thumbnails in standard width
+                            rows=None,  # Auto-expand rows as needed
+                            height="auto",  # Let content determine height
+                            object_fit="contain",  # Scale without cropping
+                            show_label=False,
+                            allow_preview=True,  # Allow clicking to see full size
+                            preview=True,
+                            elem_id="session-gallery"
+                        )
                     with gr.Row():
                         gallery_clear_btn = gr.Button("🗑️ Clear Gallery", size="sm", scale=1)
                         gallery_count = gr.HTML(
@@ -699,7 +775,9 @@ def create_interface(model_path: str = None) -> gr.Blocks:
             rescale_cfg, seed, use_custom_resolution, custom_width,
             custom_height, auto_randomize_seed, adapter_strength, enable_dora, dora_start_step, dora_toggle_mode, dora_manual_schedule_state
         ]
-        gen_outputs = [output_image, generation_info, seed]
+        # Note: Output seed to last_seed_display (not the input seed textbox)
+        # This allows users to edit the seed input while generation is in progress
+        gen_outputs = [output_image, generation_info, last_seed_display]
 
         # Engine initialization
         def init_and_update(path, enable_dora_val, dora_path_val, dora_selection_val):
@@ -853,6 +931,13 @@ def create_interface(model_path: str = None) -> gr.Blocks:
 
             Note: Start step slider remains interactive so users can change it,
             which will auto-switch toggle mode to None (see handle_dora_start_step_change).
+
+            When "optimized" mode is selected, empirically validated parameters are auto-applied:
+            - CFG scale: 4.2
+            - Rescale CFG: 0.55
+            - Adapter strength: 1.0
+            - Steps: 34
+            - DoRA start step: disabled (greyed out)
             """
             from utils import generate_standard_schedule, generate_smart_schedule, generate_optimized_schedule
 
@@ -868,53 +953,83 @@ def create_interface(model_path: str = None) -> gr.Blocks:
                 if not current_schedule or not current_schedule.strip():
                     current_schedule = ", ".join("0" for _ in range(steps_int))
                 return (
-                    gr.update(value=1),  # Reset to 1 (schedule controls activation)
+                    gr.update(value=1, interactive=True),  # Reset to 1 (schedule controls activation), enable slider
                     gr.update(value='<div style="color: gray;">⚪ Manual toggle active (adjust to override)</div>'),
                     gr.update(visible=True, value=grid_html),  # Show grid
-                    gr.update(visible=True, value=current_schedule)  # Show and update textbox
+                    gr.update(visible=True, value=current_schedule),  # Show and update textbox
+                    # No changes to other params in manual mode
+                    gr.update(),  # steps
+                    gr.update(),  # cfg_scale
+                    gr.update(),  # rescale_cfg
+                    gr.update(),  # adapter_strength
                 )
             elif toggle_mode == "standard":
                 # Hide grid and textbox, auto-populate with standard pattern
                 schedule = generate_standard_schedule(steps_int)
                 schedule_csv = ", ".join(str(x) for x in schedule)
                 return (
-                    gr.update(value=1),  # Reset to 1 (schedule controls activation)
+                    gr.update(value=1, interactive=True),  # Reset to 1 (schedule controls activation), enable slider
                     gr.update(value='<div style="color: gray;">⚪ Standard toggle active (adjust to override)</div>'),
                     gr.update(visible=False),  # Hide grid
-                    gr.update(visible=False, value=schedule_csv)  # Hide textbox but set value
+                    gr.update(visible=False, value=schedule_csv),  # Hide textbox but set value
+                    gr.update(),  # steps
+                    gr.update(),  # cfg_scale
+                    gr.update(),  # rescale_cfg
+                    gr.update(),  # adapter_strength
                 )
             elif toggle_mode == "smart":
                 # Hide grid and textbox, auto-populate with smart pattern
                 schedule = generate_smart_schedule(steps_int)
                 schedule_csv = ", ".join(str(x) for x in schedule)
                 return (
-                    gr.update(value=1),  # Reset to 1 (schedule controls activation)
+                    gr.update(value=1, interactive=True),  # Reset to 1 (schedule controls activation), enable slider
                     gr.update(value='<div style="color: gray;">⚪ Smart toggle active (adjust to override)</div>'),
                     gr.update(visible=False),  # Hide grid
-                    gr.update(visible=False, value=schedule_csv)  # Hide textbox but set value
+                    gr.update(visible=False, value=schedule_csv),  # Hide textbox but set value
+                    gr.update(),  # steps
+                    gr.update(),  # cfg_scale
+                    gr.update(),  # rescale_cfg
+                    gr.update(),  # adapter_strength
                 )
             elif toggle_mode == "optimized":
-                # Hide grid and textbox, auto-populate with optimized pattern (recommended)
-                schedule = generate_optimized_schedule(steps_int)
+                # OPTIMIZED MODE: Auto-apply empirically validated parameters
+                # These settings were validated for optimal quality with this DoRA schedule
+                optimized_steps = 34
+                optimized_cfg = 4.2
+                optimized_rescale = 0.55
+                optimized_adapter = 1.0
+
+                # Generate schedule for 34 steps (optimized setting)
+                schedule = generate_optimized_schedule(optimized_steps)
                 schedule_csv = ", ".join(str(x) for x in schedule)
+
                 return (
-                    gr.update(value=1),  # Reset to 1 (schedule controls activation)
-                    gr.update(value='<div style="color: gray;">⚪ Optimized toggle active (adjust to override)</div>'),
+                    gr.update(value=1, interactive=False),  # Disable DoRA start step slider in optimized mode
+                    gr.update(value='<div style="color: green;">✅ Optimized: Using validated parameters (CFG=4.2, Steps=34)</div>'),
                     gr.update(visible=False),  # Hide grid
-                    gr.update(visible=False, value=schedule_csv)  # Hide textbox but set value
+                    gr.update(visible=False, value=schedule_csv),  # Hide textbox but set value
+                    gr.update(value=optimized_steps),  # Auto-set steps to 34
+                    gr.update(value=optimized_cfg),  # Auto-set CFG to 4.2
+                    gr.update(value=optimized_rescale),  # Auto-set rescale to 0.55
+                    gr.update(value=optimized_adapter),  # Auto-set adapter strength to 1.0
                 )
             else:  # None selected
                 return (
-                    gr.update(),  # Keep current value
+                    gr.update(interactive=True),  # Re-enable slider
                     gr.update(value='<div style="color: green;">✅ Start at step 1</div>'),
                     gr.update(visible=False),  # Hide grid
-                    gr.update(visible=False, value="")  # Hide textbox and clear
+                    gr.update(visible=False, value=""),  # Hide textbox and clear
+                    gr.update(),  # steps
+                    gr.update(),  # cfg_scale
+                    gr.update(),  # rescale_cfg
+                    gr.update(),  # adapter_strength
                 )
 
         dora_toggle_mode.change(
             handle_toggle_mode_change,
             inputs=[dora_toggle_mode, steps, dora_manual_schedule_state],
-            outputs=[dora_start_step, dora_start_step_status, dora_manual_grid, dora_manual_schedule_state]
+            outputs=[dora_start_step, dora_start_step_status, dora_manual_grid, dora_manual_schedule_state,
+                     steps, cfg_scale, rescale_cfg, adapter_strength]
         )
 
         # Search handlers
@@ -976,7 +1091,7 @@ def create_interface(model_path: str = None) -> gr.Blocks:
             outputs=gen_outputs
         ).then(
             finish_generation_with_gallery,
-            inputs=[output_image, generation_info, seed],
+            inputs=[output_image, generation_info, last_seed_display],  # Use last_seed_display, not seed input
             outputs=[
                 interrupt_btn, generate_btn,
                 gallery_carousel, gallery_count,
@@ -1300,6 +1415,10 @@ def create_interface(model_path: str = None) -> gr.Blocks:
 
             This provides intuitive UX: adjusting the start step slider indicates the user
             wants direct control over when DoRA activates, so we switch to None mode automatically.
+
+            Note: When the slider is disabled (in optimized mode), this handler won't be triggered
+            because the user can't interact with it. Only after switching away from optimized mode
+            (which re-enables the slider) will this handler be called.
             """
             dora_start_step_updater = create_status_updater('dora_start_step')
             status_html = dora_start_step_updater(start_step)
@@ -1328,30 +1447,37 @@ def create_interface(model_path: str = None) -> gr.Blocks:
             outputs=[dora_start_step_status, dora_toggle_mode, dora_manual_grid, dora_manual_schedule_state]
         )
 
-        # Reset to optimal
+        # Reset to optimal (sets optimized DoRA mode with validated parameters)
         def reset_to_optimal():
+            from utils import generate_optimized_schedule
+
             cfg_updater = create_status_updater('cfg')
             steps_updater = create_status_updater('steps')
             rescale_updater = create_status_updater('rescale')
             adapter_updater = create_status_updater('adapter')
-            dora_start_step_updater = create_status_updater('dora_start_step')
+
+            # Generate optimized schedule for 34 steps
+            schedule = generate_optimized_schedule(34)
+            schedule_csv = ", ".join(str(x) for x in schedule)
 
             return (
                 OPTIMAL_SETTINGS['cfg_scale'],
                 OPTIMAL_SETTINGS['steps'],
                 OPTIMAL_SETTINGS['rescale_cfg'],
                 OPTIMAL_SETTINGS['adapter_strength'],
-                OPTIMAL_SETTINGS['dora_start_step'],
+                gr.update(value=OPTIMAL_SETTINGS['dora_start_step'], interactive=False),  # Disable slider in optimized mode
                 "1216x832 (Optimal)",
                 False,
                 OPTIMAL_SETTINGS['width'],
                 OPTIMAL_SETTINGS['height'],
-                None,  # Reset toggle mode to None
+                "optimized",  # Reset toggle mode to optimized (not None)
+                gr.update(visible=False),  # Hide grid
+                gr.update(visible=False, value=schedule_csv),  # Hide schedule but set value
                 cfg_updater(OPTIMAL_SETTINGS['cfg_scale']),
                 steps_updater(OPTIMAL_SETTINGS['steps']),
                 rescale_updater(OPTIMAL_SETTINGS['rescale_cfg']),
                 adapter_updater(OPTIMAL_SETTINGS['adapter_strength']),
-                dora_start_step_updater(OPTIMAL_SETTINGS['dora_start_step'])
+                '<div style="color: green;">✅ Optimized: Using validated parameters (CFG=4.2, Steps=34)</div>'
             )
 
         reset_btn.click(
@@ -1359,7 +1485,7 @@ def create_interface(model_path: str = None) -> gr.Blocks:
             outputs=[
                 cfg_scale, steps, rescale_cfg, adapter_strength, dora_start_step, resolution,
                 use_custom_resolution, custom_width, custom_height,
-                dora_toggle_mode,  # Add toggle mode reset
+                dora_toggle_mode, dora_manual_grid, dora_manual_schedule_state,
                 cfg_status, steps_status, rescale_status, adapter_status, dora_start_step_status
             ]
         )
