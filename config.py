@@ -12,8 +12,11 @@ from typing import Tuple
 import torch
 import logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Configure logging with environment variable support
+# Set NOOBAI_LOG_LEVEL to DEBUG, INFO, WARNING, ERROR, or CRITICAL
+_log_level_name = os.environ.get('NOOBAI_LOG_LEVEL', 'INFO').upper()
+_log_level = getattr(logging, _log_level_name, logging.INFO)
+logging.basicConfig(level=_log_level, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 try:

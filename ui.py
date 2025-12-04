@@ -183,9 +183,18 @@ def create_interface(model_path: str = None) -> gr.Blocks:
         """,
         head="""
         <script>
+        // Store observers for cleanup
+        window.noobaiObservers = window.noobaiObservers || [];
+
         function setupDoraGridHandlers() {
-            setTimeout(function() {
+            // Use requestAnimationFrame with retry logic instead of fixed timeout
+            function trySetup(attempts) {
                 const containers = document.querySelectorAll('[id*="dora-grid"][id$="-container"]');
+
+                if (containers.length === 0 && attempts < 10) {
+                    requestAnimationFrame(function() { trySetup(attempts + 1); });
+                    return;
+                }
 
                 containers.forEach(function(container) {
                     if (container.hasAttribute('data-dora-initialized')) return;
@@ -200,9 +209,9 @@ def create_interface(model_path: str = None) -> gr.Blocks:
 
                         // Update schedule
                         const cells = container.querySelectorAll('.dora-cell');
-                        const schedule = Array.from(cells).map(c =>
-                            c.classList.contains('on') ? '1' : '0'
-                        );
+                        const schedule = Array.from(cells).map(function(c) {
+                            return c.classList.contains('on') ? '1' : '0';
+                        });
                         const scheduleCSV = schedule.join(', ');
 
                         // Update hidden textbox
@@ -216,7 +225,8 @@ def create_interface(model_path: str = None) -> gr.Blocks:
                         }
                     });
                 });
-            }, 500);
+            }
+            requestAnimationFrame(function() { trySetup(0); });
         }
 
         // Setup on load
@@ -226,10 +236,11 @@ def create_interface(model_path: str = None) -> gr.Blocks:
             setupDoraGridHandlers();
         }
 
-        // Re-setup on mutations
-        const observer = new MutationObserver(setupDoraGridHandlers);
+        // Re-setup on mutations with stored observer for cleanup
+        var doraObserver = new MutationObserver(setupDoraGridHandlers);
+        window.noobaiObservers.push(doraObserver);
         setTimeout(function() {
-            observer.observe(document.body, { childList: true, subtree: true });
+            doraObserver.observe(document.body, { childList: true, subtree: true });
         }, 1000);
 
         // Queue item removal handler
@@ -255,7 +266,7 @@ def create_interface(model_path: str = None) -> gr.Blocks:
             if (triggerBox && !triggerBox.hasAttribute('data-queue-trigger-initialized')) {
                 triggerBox.setAttribute('data-queue-trigger-initialized', 'true');
 
-                const observer = new MutationObserver(function(mutations) {
+                var queueTriggerObserver = new MutationObserver(function(mutations) {
                     mutations.forEach(function(mutation) {
                         if (mutation.type === 'attributes' || mutation.type === 'childList') {
                             const input = triggerBox.querySelector('textarea, input');
@@ -279,8 +290,9 @@ def create_interface(model_path: str = None) -> gr.Blocks:
                         }
                     });
                 });
+                window.noobaiObservers.push(queueTriggerObserver);
 
-                observer.observe(triggerBox, {
+                queueTriggerObserver.observe(triggerBox, {
                     attributes: true,
                     childList: true,
                     subtree: true,
@@ -291,10 +303,21 @@ def create_interface(model_path: str = None) -> gr.Blocks:
 
         // Setup auto-process on load and mutations
         setTimeout(setupQueueAutoProcess, 1000);
-        const queueObserver = new MutationObserver(setupQueueAutoProcess);
+        var queueObserver = new MutationObserver(setupQueueAutoProcess);
+        window.noobaiObservers.push(queueObserver);
         setTimeout(function() {
             queueObserver.observe(document.body, { childList: true, subtree: true });
         }, 2000);
+
+        // Cleanup observers on page unload to prevent memory leaks
+        window.addEventListener('beforeunload', function() {
+            if (window.noobaiObservers) {
+                window.noobaiObservers.forEach(function(obs) {
+                    try { obs.disconnect(); } catch(e) {}
+                });
+                window.noobaiObservers = [];
+            }
+        });
         </script>
         """
     ) as demo:
@@ -560,8 +583,7 @@ def create_interface(model_path: str = None) -> gr.Blocks:
                             scale=2
                         )
                         queue_status = gr.HTML(
-                            f'<span style="color: gray;">Queue: 0/{QUEUE_CONFIG.MAX_QUEUE_SIZE}</span>',
-                            scale=1
+                            f'<span style="color: gray;">Queue: 0/{QUEUE_CONFIG.MAX_QUEUE_SIZE}</span>'
                         )
                     with gr.Row():
                         auto_process_checkbox = gr.Checkbox(
@@ -618,8 +640,7 @@ def create_interface(model_path: str = None) -> gr.Blocks:
                     with gr.Row():
                         gallery_clear_btn = gr.Button("🗑️ Clear Gallery", size="sm", scale=1)
                         gallery_count = gr.HTML(
-                            f'<span style="color: gray;">0/{QUEUE_CONFIG.MAX_GALLERY_SIZE} images</span>',
-                            scale=2
+                            f'<span style="color: gray;">0/{QUEUE_CONFIG.MAX_GALLERY_SIZE} images</span>'
                         )
 
         with gr.Row():

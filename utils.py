@@ -11,6 +11,7 @@ import json
 import struct
 import hashlib
 import unicodedata
+import tempfile
 import torch
 from functools import lru_cache
 from typing import Tuple, Dict, Any, List, Optional, Sequence
@@ -40,7 +41,7 @@ def _get_allowed_directories() -> tuple:
         os.path.expanduser("~/Downloads"),
         os.path.expanduser("~/Documents"),
         os.path.expanduser("~/Models"),
-        "/tmp",
+        tempfile.gettempdir(),  # Cross-platform temp directory
     ]
 
     return tuple(os.path.realpath(os.path.normpath(d)) for d in allowed if os.path.exists(d))
@@ -61,8 +62,9 @@ def _is_path_in_allowed_directory(path: str, allowed_dirs: Sequence[str]) -> Tup
         try:
             allowed_dir_real = os.path.realpath(os.path.normpath(allowed_dir))
 
+            temp_dir_real = os.path.realpath(tempfile.gettempdir())
             if real_path == allowed_dir_real:
-                if allowed_dir_real == os.path.realpath("/tmp"):
+                if allowed_dir_real == temp_dir_real:
                     return True, f"⚠️ File in temporary directory: {real_path}"
                 return True, None
             elif real_path.startswith(allowed_dir_real + os.sep):
@@ -73,7 +75,7 @@ def _is_path_in_allowed_directory(path: str, allowed_dirs: Sequence[str]) -> Tup
                 except (ValueError, TypeError):
                     continue
 
-                if allowed_dir_real == os.path.realpath("/tmp"):
+                if allowed_dir_real == temp_dir_real:
                     return True, f"⚠️ File in temporary directory: {real_path}"
                 return True, None
 
@@ -301,8 +303,12 @@ def format_file_size(size_bytes: int) -> str:
         size_bytes /= 1024.0
     return f"{size_bytes:.2f} TiB"
 
-def calculate_image_hash(file_path: str) -> str:
-    """Calculate MD5 hash of an image file."""
+def calculate_image_hash(file_path: str) -> Optional[str]:
+    """Calculate MD5 hash of an image file.
+
+    Returns:
+        MD5 hash string on success, None on failure.
+    """
     try:
         hash_md5 = hashlib.md5()
         with open(file_path, 'rb') as f:
@@ -311,7 +317,7 @@ def calculate_image_hash(file_path: str) -> str:
         return hash_md5.hexdigest()
     except (IOError, OSError) as e:
         logger.error(f"Failed to calculate hash for {file_path}: {e}")
-        return "ERROR"
+        return None
 
 def validate_dora_path(path: str) -> Tuple[bool, str]:
     """Validate DoRA adapter path."""
@@ -364,7 +370,10 @@ def detect_base_model_precision(model_path: str) -> torch.dtype:
                         break
 
             if "FP32" in os.path.basename(model_path):
-                logger.info("FP32 model assumed from directory name")
+                logger.warning(
+                    f"Could not detect precision from safetensors header for {model_path}. "
+                    "Falling back to FP32 based on directory name - verify model format if issues occur."
+                )
                 return torch.float32
 
             raise ValueError(f"Could not detect precision from directory: {model_path}")

@@ -10,6 +10,7 @@ import threading
 import contextlib
 import gc
 import uuid
+import traceback
 from enum import Enum
 from dataclasses import dataclass, field
 from typing import Dict, Any, Callable, List, Optional, Tuple
@@ -160,7 +161,7 @@ class ResourcePool:
             return self._resources[key]
 
     def clear(self):
-        """Clear resource pool."""
+        """Clear resource pool with retry for failed cleanups."""
         with self._lock:
             if self._failed_cleanups:
                 self._clear_stale_cleanup_metadata_internal()
@@ -178,18 +179,45 @@ class ResourcePool:
                     successfully_cleaned.append(key)
                 except Exception as e:
                     logger.warning(f"Error cleaning up resource '{key}': {e}")
-                    # Don't store resource object - just metadata to avoid memory leak
-                    failed_to_clean[key] = {'error': str(e), 'type': type(resource).__name__}
+                    # Store metadata including traceback for debugging
+                    failed_to_clean[key] = {
+                        'error': str(e),
+                        'type': type(resource).__name__,
+                        'traceback': traceback.format_exc()
+                    }
 
             for key in successfully_cleaned:
                 del self._resources[key]
+
+            # Retry failed cleanups once with gc.collect() in between
+            if failed_to_clean:
+                gc.collect()
+                retry_succeeded = []
+                for key in list(failed_to_clean.keys()):
+                    if key in self._resources:
+                        try:
+                            resource = self._resources[key]
+                            if hasattr(resource, 'close'):
+                                resource.close()
+                            elif hasattr(resource, 'cleanup'):
+                                resource.cleanup()
+                            retry_succeeded.append(key)
+                            del self._resources[key]
+                            logger.debug(f"Retry cleanup succeeded for resource '{key}'")
+                        except Exception as retry_e:
+                            logger.debug(f"Retry cleanup also failed for '{key}': {retry_e}")
+
+                # Remove retried successes from failed list
+                for key in retry_succeeded:
+                    del failed_to_clean[key]
 
             if failed_to_clean:
                 for key, info in failed_to_clean.items():
                     self._failed_cleanups[key] = {
                         'error': info['error'],
                         'timestamp': time.time(),
-                        'type': info['type']  # Already extracted type name
+                        'type': info['type'],
+                        'traceback': info['traceback']
                     }
                 logger.error(f"Failed cleanup for {len(failed_to_clean)} resource(s): {list(failed_to_clean.keys())}")
 

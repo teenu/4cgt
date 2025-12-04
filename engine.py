@@ -179,8 +179,16 @@ class NoobAIEngine:
                     try:
                         self.pipe.vae.to(dtype=torch.float32)
                         logger.info("Single file model loaded; VAE upcast to FP32 for lossless decode")
-                    except Exception as vae_error:
-                        raise ValueError(f"Failed to upcast VAE to FP32: {vae_error}")
+                    except RuntimeError as e:
+                        error_str = str(e).lower()
+                        if "out of memory" in error_str or "cuda" in error_str:
+                            raise MemoryError(f"Insufficient GPU memory for FP32 VAE upcast: {e}")
+                        raise ValueError(f"Failed to upcast VAE to FP32: {e}")
+                    except MemoryError:
+                        raise
+                    except Exception as e:
+                        logger.error(f"Unexpected error during VAE upcast: {e}")
+                        raise ValueError(f"Failed to upcast VAE to FP32: {e}")
 
                 # Configure scheduler
                 self.pipe.scheduler = EulerDiscreteScheduler.from_config(
@@ -200,7 +208,8 @@ class NoobAIEngine:
                             logger.info(f"CPU offloading enabled ({vram_gb:.1f}GB VRAM)")
                         else:
                             self.pipe = self.pipe.to(self._device)
-                    except Exception:
+                    except Exception as vram_check_error:
+                        logger.debug(f"Could not detect VRAM size, loading to device directly: {vram_check_error}")
                         self.pipe = self.pipe.to(self._device)
                 else:
                     self.pipe = self.pipe.to(self._device)
@@ -215,14 +224,14 @@ class NoobAIEngine:
                 if self.enable_dora:
                     self._load_dora_adapter()
 
-        except (IOError, OSError, RuntimeError, ValueError) as e:
+        except (IOError, OSError, RuntimeError, ValueError, MemoryError) as e:
             self.is_initialized = False
             if self.pipe is not None:
                 try:
                     if self._device in ["cuda", "mps"]:
                         self.clear_memory()
-                except Exception:
-                    pass
+                except Exception as cleanup_error:
+                    logger.debug(f"Non-critical cleanup error during init failure: {cleanup_error}")
                 finally:
                     self.pipe = None
             logger.error(f"Failed to initialize engine: {e}")
@@ -648,6 +657,15 @@ class NoobAIEngine:
         cached_optimized_schedule = None
         if dora_toggle_mode == "optimized":
             cached_optimized_schedule = generate_optimized_schedule(steps)
+            # Validate schedule bounds
+            if cached_optimized_schedule and len(cached_optimized_schedule) != steps:
+                logger.warning(
+                    f"Optimized schedule size mismatch: {len(cached_optimized_schedule)} vs {steps} steps. "
+                    "Schedule will be bounds-checked during generation."
+                )
+
+        # Track callback failures for escalation
+        callback_failure_count = [0]  # Use list to allow mutation in nested function
 
         def callback_on_step_end(pipe, step_index: int, timestep, callback_kwargs: Dict) -> Dict:
             """Diffusers callback invoked at the end of each denoising step.
@@ -682,11 +700,14 @@ class NoobAIEngine:
                 dora_toggle_mode, manual_schedule, cached_optimized_schedule
             )
 
-            # Call user callback with error isolation
+            # Call user callback with error isolation and escalation tracking
             if progress_callback:
                 try:
                     progress_callback(progress, desc)
+                    # Reset failure count on success
+                    callback_failure_count[0] = 0
                 except Exception as e:
+                    callback_failure_count[0] += 1
                     # Log with full traceback for debugging
                     logger.error(
                         f"Progress callback error at step {current_step}: {e}",
@@ -698,9 +719,17 @@ class NoobAIEngine:
                     # In GUI mode, try one more time with minimal description
                     try:
                         progress_callback(progress, f"Step {current_step}/{steps}")
+                        callback_failure_count[0] = 0  # Reset on retry success
                     except Exception as retry_error:
+                        callback_failure_count[0] += 1
                         # Log retry failure even in GUI mode for debugging
                         logger.error(f"Progress callback retry also failed: {retry_error}")
+                        # Escalate warning after repeated failures
+                        if callback_failure_count[0] >= 3:
+                            logger.warning(
+                                f"Progress callback failed {callback_failure_count[0]} times. "
+                                "Generation continuing but progress display may be unreliable."
+                            )
 
             return callback_kwargs
 
@@ -1314,8 +1343,10 @@ class NoobAIEngine:
                         self.pipe = self.pipe.to("cpu")
                 except RuntimeError as e:
                     # Handle meta tensor case gracefully - common with accelerate/CPU offloading
-                    error_str = str(e)
-                    if "meta tensor" in error_str.lower() or "Cannot copy out of meta" in error_str:
+                    # Use robust keyword matching for various PyTorch/CUDA versions
+                    error_str = str(e).lower()
+                    meta_keywords = ["meta tensor", "cannot copy out of meta", "meta device", "not materialized"]
+                    if any(keyword in error_str for keyword in meta_keywords):
                         logger.debug("Skipping .to(cpu) for meta tensor pipeline (expected with CPU offloading)")
                     else:
                         logger.warning(f"Error moving pipeline to CPU: {e}")
@@ -1402,15 +1433,15 @@ class NoobAIEngine:
             if self._device == "mps":
                 try:
                     torch.mps.synchronize()
-                except (AttributeError, RuntimeError):
-                    pass
+                except (AttributeError, RuntimeError) as e:
+                    logger.debug(f"MPS synchronize not available: {e}")
             elif self._device == "cuda":
                 try:
                     torch.cuda.synchronize()
-                except (AttributeError, RuntimeError):
-                    pass
-        except Exception:
-            pass
+                except (AttributeError, RuntimeError) as e:
+                    logger.debug(f"CUDA synchronize not available: {e}")
+        except Exception as e:
+            logger.debug(f"Device synchronization error (non-critical): {e}")
 
     def clear_memory(self) -> None:
         """Clear GPU/memory caches."""

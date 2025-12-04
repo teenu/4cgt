@@ -97,30 +97,55 @@ def compose_final_prompt(prefix: str, character: str, artist: str, custom: str) 
     return ", ".join(filter(None, map(normalize_text, [prefix, character, artist, custom])))
 
 def parse_resolution_string(res_str: str) -> Tuple[int, int]:
-    """Parse resolution string to width and height."""
+    """Parse resolution string to width and height.
+
+    Validates parsed values are within acceptable bounds (512-2048).
+    """
     try:
-        w, h = map(int, re.findall(r'\d+', res_str)[:2])
+        matches = re.findall(r'\d+', res_str)
+        if len(matches) < 2:
+            logger.warning(f"Could not parse resolution from: '{res_str}', using defaults")
+            return OPTIMAL_SETTINGS['width'], OPTIMAL_SETTINGS['height']
+
+        w, h = int(matches[0]), int(matches[1])
+
+        # Validate bounds
+        if not (GEN_CONFIG.MIN_RESOLUTION <= w <= GEN_CONFIG.MAX_RESOLUTION):
+            logger.warning(f"Width {w} out of bounds ({GEN_CONFIG.MIN_RESOLUTION}-{GEN_CONFIG.MAX_RESOLUTION}), using default")
+            w = OPTIMAL_SETTINGS['width']
+        if not (GEN_CONFIG.MIN_RESOLUTION <= h <= GEN_CONFIG.MAX_RESOLUTION):
+            logger.warning(f"Height {h} out of bounds ({GEN_CONFIG.MIN_RESOLUTION}-{GEN_CONFIG.MAX_RESOLUTION}), using default")
+            h = OPTIMAL_SETTINGS['height']
+
         return w, h
-    except Exception:
+    except Exception as e:
+        logger.error(f"Resolution parsing error: {e}")
         return OPTIMAL_SETTINGS['width'], OPTIMAL_SETTINGS['height']
 
 def _coerce_int(value: Union[int, float, str, Any], label: str) -> int:
     """Coerce value to integer with descriptive error message.
-    
-    Handles floats from Gradio sliders, strings from textboxes, and numpy types.
-    
+
+    Handles floats from Gradio sliders (rounds instead of truncates),
+    strings from textboxes, and numpy types.
+
     Note: OverflowError is caught to handle edge cases like int(float('inf')).
     """
     try:
         # Handle None
         if value is None:
             raise InvalidParameterError(f"{label} cannot be None")
-        
+
         # Handle numpy types
         if hasattr(value, 'item'):
             value = value.item()
-        
-        # Convert to int (handles float, str, etc.)
+
+        # For floats, use round() to avoid silent truncation
+        if isinstance(value, float):
+            if not value.is_integer():
+                logger.debug(f"{label}: rounding {value} to {round(value)}")
+            return round(value)
+
+        # Convert to int (handles str, int, etc.)
         return int(value)
     except InvalidParameterError:
         # Re-raise our own exceptions without wrapping
@@ -659,7 +684,7 @@ def generate_image_with_progress(
         # Calculate hash with error handling - don't fail generation if hash fails
         try:
             image_hash = calculate_image_hash(saved_path)
-            if image_hash == "ERROR":
+            if image_hash is None:
                 info += f"\n⚠️ Hash calculation failed (file still saved)"
             else:
                 info += f"\n📄 MD5 Hash: {image_hash}"
@@ -728,35 +753,41 @@ def add_to_queue(
     from state import queue_manager, QueueItem
     from config import QUEUE_CONFIG
 
-    if not prompt.strip():
-        return render_queue_html(), '<span style="color: red;">❌ Cannot queue: empty prompt</span>'
+    try:
+        if not prompt.strip():
+            return render_queue_html(), '<span style="color: red;">❌ Cannot queue: empty prompt</span>'
 
-    item = QueueItem(
-        prompt=prompt,
-        negative_prompt=negative_prompt,
-        resolution=resolution,
-        cfg_scale=float(cfg_scale) if cfg_scale else 4.2,
-        steps=int(steps) if steps else 34,
-        rescale_cfg=float(rescale_cfg) if rescale_cfg else 0.55,
-        seed=seed,
-        use_custom_resolution=use_custom_resolution,
-        custom_width=int(custom_width) if custom_width else 1216,
-        custom_height=int(custom_height) if custom_height else 832,
-        auto_randomize_seed=auto_randomize_seed,
-        adapter_strength=float(adapter_strength) if adapter_strength else 1.0,
-        enable_dora=enable_dora,
-        dora_start_step=int(dora_start_step) if dora_start_step else 1,
-        dora_toggle_mode=dora_toggle_mode,
-        dora_manual_schedule=dora_manual_schedule or ""
-    )
+        item = QueueItem(
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            resolution=resolution,
+            cfg_scale=float(cfg_scale) if cfg_scale else 4.2,
+            steps=int(steps) if steps else 34,
+            rescale_cfg=float(rescale_cfg) if rescale_cfg else 0.55,
+            seed=seed,
+            use_custom_resolution=use_custom_resolution,
+            custom_width=int(custom_width) if custom_width else 1216,
+            custom_height=int(custom_height) if custom_height else 832,
+            auto_randomize_seed=auto_randomize_seed,
+            adapter_strength=float(adapter_strength) if adapter_strength else 1.0,
+            enable_dora=enable_dora,
+            dora_start_step=int(dora_start_step) if dora_start_step else 1,
+            dora_toggle_mode=dora_toggle_mode,
+            dora_manual_schedule=dora_manual_schedule or ""
+        )
 
-    success, message = queue_manager.add(item)
-    if success:
-        status = f'<span style="color: green;">✅ Queue: {queue_manager.size()}/{QUEUE_CONFIG.MAX_QUEUE_SIZE}</span>'
-    else:
-        status = f'<span style="color: red;">❌ {message}</span>'
+        success, message = queue_manager.add(item)
+        if success:
+            status = f'<span style="color: green;">✅ Queue: {queue_manager.size()}/{QUEUE_CONFIG.MAX_QUEUE_SIZE}</span>'
+        else:
+            status = f'<span style="color: red;">❌ {message}</span>'
 
-    return render_queue_html(), status
+        return render_queue_html(), status
+
+    except Exception as e:
+        logger.error(f"Queue add error: {e}")
+        error_msg = str(e)[:50] if len(str(e)) > 50 else str(e)
+        return render_queue_html(), f'<span style="color: red;">❌ Queue error: {error_msg}</span>'
 
 
 def remove_from_queue(item_id: str) -> Tuple[str, str]:
@@ -917,10 +948,16 @@ def select_gallery_image(evt: gr.SelectData) -> Tuple[Optional[str], str]:
     """
     from state import gallery_manager
 
-    item = gallery_manager.get_by_index(evt.index)
-    if item:
-        return item.image_path, item.generation_info
-    return None, ""
+    try:
+        item = gallery_manager.get_by_index(evt.index)
+        if item:
+            return item.image_path, item.generation_info
+        logger.warning(f"Gallery item at index {evt.index} not found")
+        return None, "⚠️ Image not found in gallery"
+    except Exception as e:
+        logger.error(f"Gallery selection error: {e}")
+        error_msg = str(e)[:50] if len(str(e)) > 50 else str(e)
+        return None, f"⚠️ Selection error: {error_msg}"
 
 
 def get_gallery_count_html() -> str:
