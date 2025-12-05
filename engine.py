@@ -186,13 +186,13 @@ class NoobAIEngine:
                         total_vram_gb = total_vram_bytes / (1024 ** 3)
 
                         if total_vram_gb < 8.0:
-                            device_map = "auto"
+                            device_map = "balanced"
                             max_memory = {0: f"{int(total_vram_gb)}GiB", "cpu": "32GiB"}
                             cpu_offload_planned = True
                             logger.info(
-                                "Using CUDA device_map 'auto' with max_memory %s (VRAM %.1fGB)",
-                                max_memory,
+                                "Low VRAM detected (%.1fGB); using CUDA device_map 'balanced' with max_memory %s and planning sequential CPU offload",
                                 total_vram_gb,
+                                max_memory,
                             )
                         else:
                             device_map = "balanced"
