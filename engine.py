@@ -112,6 +112,7 @@ class NoobAIEngine:
         self.is_initialized = False
         self._device = None
         self._cpu_offload_enabled = False  # Initialize here to ensure it always exists
+        self._using_device_map = False
         self._toggle_lock = threading.Lock()  # Lock for DoRA toggle operations
         self._initialize()
 
@@ -180,6 +181,10 @@ class NoobAIEngine:
                 max_memory = None
                 cpu_offload_planned = False
 
+                # Track whether Accelerate device_map placement is in use to avoid invalid .to() calls
+                # on partially-offloaded models ("You can't move a model that has some modules offloaded").
+                using_device_map = False
+
                 if self._device == "cuda":
                     try:
                         total_vram_bytes = torch.cuda.get_device_properties(0).total_memory
@@ -189,6 +194,7 @@ class NoobAIEngine:
                             device_map = "balanced"
                             max_memory = {0: f"{int(total_vram_gb)}GiB", "cpu": "32GiB"}
                             cpu_offload_planned = True
+                            using_device_map = True
                             logger.info(
                                 "Low VRAM detected (%.1fGB); using CUDA device_map 'balanced' with max_memory %s and planning sequential CPU offload",
                                 total_vram_gb,
@@ -196,18 +202,22 @@ class NoobAIEngine:
                             )
                         else:
                             device_map = "balanced"
+                            using_device_map = True
                             logger.info("Using CUDA device_map 'balanced' for module placement")
                     except Exception as vram_detect_error:
                         device_map = "balanced"
+                        using_device_map = True
                         logger.debug(
                             "Could not detect VRAM size, defaulting to balanced device_map: %s",
                             vram_detect_error,
                         )
                 elif self._device == "mps":
                     device_map = "mps"
+                    using_device_map = True
                     logger.info("Using MPS device_map 'mps' for module placement")
                 else:
                     device_map = "cpu"
+                    using_device_map = True
                     logger.info("Using CPU device_map for module placement")
 
                 # Load FP32 pre-converted model or BF16 model with precision selection
@@ -236,24 +246,25 @@ class NoobAIEngine:
                         # but we explicitly set VAE above to guarantee FP32 decode
                     )
 
-                    # Ensure UNet/Text Encoder use the selected inference dtype
-                    self.pipe.unet.to(dtype=inference_dtype)
-                    if hasattr(self.pipe, "text_encoder"):
-                        self.pipe.text_encoder.to(dtype=inference_dtype)
-                    if hasattr(self.pipe, "text_encoder_2"):
-                        self.pipe.text_encoder_2.to(dtype=inference_dtype)
+                    # Ensure UNet/Text Encoder use the selected inference dtype when not using Accelerate device_map
+                    if not using_device_map:
+                        self.pipe.unet.to(dtype=inference_dtype)
+                        if hasattr(self.pipe, "text_encoder"):
+                            self.pipe.text_encoder.to(dtype=inference_dtype)
+                        if hasattr(self.pipe, "text_encoder_2"):
+                            self.pipe.text_encoder_2.to(dtype=inference_dtype)
 
                     # Validate actual loaded precision matches expected settings
                     actual_unet_dtype = next(self.pipe.unet.parameters()).dtype
                     actual_vae_dtype = next(self.pipe.vae.parameters()).dtype
 
-                    if actual_unet_dtype != inference_dtype:
+                    if not using_device_map and actual_unet_dtype != inference_dtype:
                         raise ValueError(
                             f"Expected {inference_dtype} model but UNet loaded with {actual_unet_dtype}. "
                             f"Directory may contain wrong precision weights."
                         )
 
-                    if hasattr(self.pipe, "text_encoder"):
+                    if not using_device_map and hasattr(self.pipe, "text_encoder"):
                         actual_te_dtype = next(self.pipe.text_encoder.parameters()).dtype
                         if actual_te_dtype != inference_dtype:
                             raise ValueError(
@@ -261,7 +272,7 @@ class NoobAIEngine:
                                 f"Directory may contain wrong precision weights."
                             )
 
-                    if hasattr(self.pipe, "text_encoder_2"):
+                    if not using_device_map and hasattr(self.pipe, "text_encoder_2"):
                         actual_te2_dtype = next(self.pipe.text_encoder_2.parameters()).dtype
                         if actual_te2_dtype != inference_dtype:
                             raise ValueError(
@@ -307,24 +318,25 @@ class NoobAIEngine:
                         logger.error(f"Unexpected error during VAE upcast: {e}")
                         raise ValueError(f"Failed to upcast VAE to FP32: {e}")
 
-                    # Ensure UNet/Text Encoder use the selected inference dtype
-                    self.pipe.unet.to(dtype=inference_dtype)
-                    if hasattr(self.pipe, "text_encoder"):
-                        self.pipe.text_encoder.to(dtype=inference_dtype)
-                    if hasattr(self.pipe, "text_encoder_2"):
-                        self.pipe.text_encoder_2.to(dtype=inference_dtype)
+                    # Ensure UNet/Text Encoder use the selected inference dtype when not using Accelerate device_map
+                    if not using_device_map:
+                        self.pipe.unet.to(dtype=inference_dtype)
+                        if hasattr(self.pipe, "text_encoder"):
+                            self.pipe.text_encoder.to(dtype=inference_dtype)
+                        if hasattr(self.pipe, "text_encoder_2"):
+                            self.pipe.text_encoder_2.to(dtype=inference_dtype)
 
                     # Validate component dtypes after adjustments
                     actual_unet_dtype = next(self.pipe.unet.parameters()).dtype
                     actual_vae_dtype = next(self.pipe.vae.parameters()).dtype
 
-                    if actual_unet_dtype != inference_dtype:
+                    if not using_device_map and actual_unet_dtype != inference_dtype:
                         raise ValueError(
                             f"Expected {inference_dtype} model but UNet loaded with {actual_unet_dtype}. "
                             "Single-file weights may be in an unexpected precision."
                         )
 
-                    if hasattr(self.pipe, "text_encoder"):
+                    if not using_device_map and hasattr(self.pipe, "text_encoder"):
                         actual_te_dtype = next(self.pipe.text_encoder.parameters()).dtype
                         if actual_te_dtype != inference_dtype:
                             raise ValueError(
@@ -332,7 +344,7 @@ class NoobAIEngine:
                                 "Single-file weights may be in an unexpected precision."
                             )
 
-                    if hasattr(self.pipe, "text_encoder_2"):
+                    if not using_device_map and hasattr(self.pipe, "text_encoder_2"):
                         actual_te2_dtype = next(self.pipe.text_encoder_2.parameters()).dtype
                         if actual_te2_dtype != inference_dtype:
                             raise ValueError(
@@ -351,6 +363,9 @@ class NoobAIEngine:
                     inference_dtype,
                 )
 
+                # Persist device_map usage for other methods
+                self._using_device_map = using_device_map
+
                 # Configure CPU offload immediately after loading when planned
                 if cpu_offload_planned:
                     self.pipe.enable_sequential_cpu_offload()
@@ -366,7 +381,7 @@ class NoobAIEngine:
                 )
 
                 # Move to device and configure memory management
-                if not self._cpu_offload_enabled:
+                if not self._cpu_offload_enabled and not self._using_device_map:
                     if self._device == "cuda":
                         try:
                             vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
