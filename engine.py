@@ -128,6 +128,7 @@ class NoobAIEngine:
 
                 # Detect and validate model precision
                 base_precision = detect_base_model_precision(self.model_path)
+                logger.info(f"Base model dtype successfully parsed: {base_precision}")
                 is_directory = os.path.isdir(self.model_path)
 
                 if base_precision not in [torch.bfloat16, torch.float32]:

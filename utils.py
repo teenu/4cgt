@@ -345,6 +345,13 @@ def detect_base_model_precision(model_path: str) -> torch.dtype:
             logger.info(f"Detecting precision from diffusers directory: {model_path}")
 
             unet_dir = os.path.join(model_path, "unet")
+
+            if not os.path.isdir(unet_dir):
+                raise ValueError(
+                    f"Invalid diffusers directory: expected UNet weights under {unet_dir}. "
+                    "Re-download the FP32 directory and ensure unet/ contains diffusion_pytorch_model*.safetensors files."
+                )
+
             unet_path = None
 
             # Priority order for finding safetensors file:
@@ -371,16 +378,27 @@ def detect_base_model_precision(model_path: str) -> torch.dtype:
                     # Index file has format: {"metadata": {...}, "weight_map": {"layer_name": "shard_file.safetensors"}}
                     weight_map = index_data.get('weight_map', {})
                     if weight_map:
-                        # Get the first shard file from weight_map
                         shard_files = set(weight_map.values())
-                        # Sort to get consistent ordering (first shard is usually -00001-)
                         sorted_shards = sorted(shard_files)
                         if sorted_shards:
                             first_shard = sorted_shards[0]
                             unet_path = os.path.join(unet_dir, first_shard)
                             logger.debug(f"Using sharded safetensors (first shard): {unet_path}")
+                        else:
+                            raise ValueError(
+                                f"Sharded UNet index found at {index_file} but no shard filenames listed. "
+                                "Re-download the FP32 directory to restore missing diffusion_pytorch_model-*-of-*.safetensors files."
+                            )
+                    else:
+                        raise ValueError(
+                            f"Sharded UNet index found at {index_file} without a weight_map. "
+                            "Re-download the FP32 directory to restore missing diffusion_pytorch_model-*-of-*.safetensors files."
+                        )
                 except (json.JSONDecodeError, KeyError, TypeError) as e:
-                    logger.warning(f"Could not parse index.json: {e}")
+                    raise ValueError(
+                        f"Could not parse {index_file}: {e}. "
+                        "Ensure unet/ contains valid diffusion_pytorch_model.safetensors shards."
+                    )
 
             # Fallback: look for any sharded safetensors file pattern
             if unet_path is None or not os.path.exists(unet_path):
@@ -396,8 +414,10 @@ def detect_base_model_precision(model_path: str) -> torch.dtype:
                     header_size = struct.unpack('<Q', f.read(8))[0]
                     header_data = json.loads(f.read(header_size).decode('utf-8'))
 
+                dtype_found = False
                 for key, value in header_data.items():
                     if key != '__metadata__' and isinstance(value, dict) and 'dtype' in value:
+                        dtype_found = True
                         dtype_str = value['dtype']
                         detected_dtype = DTYPE_MAP.get(dtype_str)
 
@@ -414,18 +434,25 @@ def detect_base_model_precision(model_path: str) -> torch.dtype:
                             logger.info("BF16 model detected from safetensors header")
                             return detected_dtype
                         elif detected_dtype is None:
-                            raise ValueError(f"Unsupported model precision: {dtype_str}")
+                            raise ValueError(
+                                f"Unsupported model precision: {dtype_str}. "
+                                "Re-download the model to ensure diffusion_pytorch_model*.safetensors is valid."
+                            )
                         break
 
-            # Only fall back to directory name if no safetensors files found at all
-            if "FP32" in os.path.basename(model_path):
-                logger.warning(
-                    f"No safetensors files found in {model_path}/unet/. "
-                    "Falling back to FP32 based on directory name - verify model format if issues occur."
-                )
-                return torch.float32
+                if not dtype_found:
+                    raise ValueError(
+                        f"No dtype metadata found in {unet_path}. "
+                        "Ensure diffusion_pytorch_model*.safetensors is valid or re-download the FP32 directory."
+                    )
 
-            raise ValueError(f"Could not detect precision from directory: {model_path}")
+            raise ValueError(
+                "Could not detect precision from directory. Expected one of:\n"
+                f"- {single_file}\n"
+                f"- {fp32_file}\n"
+                f"- {index_file} with diffusion_pytorch_model-00001-of-*.safetensors shards\n"
+                "Re-download the FP32 directory; ensure unet/ contains diffusion_pytorch_model*.safetensors."
+            )
 
         else:
             with open(model_path, 'rb') as f:
