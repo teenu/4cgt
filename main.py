@@ -20,9 +20,11 @@ if 'CUBLAS_WORKSPACE_CONFIG' not in os.environ:
 else:
     existing_value = os.environ['CUBLAS_WORKSPACE_CONFIG']
     if existing_value not in [':4096:8', ':16:8']:
+        corrected_value = ':4096:8'
+        os.environ['CUBLAS_WORKSPACE_CONFIG'] = corrected_value
         print(
-            f"WARNING: CUBLAS_WORKSPACE_CONFIG is '{existing_value}' "
-            f"(expected ':4096:8' or ':16:8'). Determinism may be affected.",
+            "WARNING: Invalid CUBLAS_WORKSPACE_CONFIG detected. "
+            f"Overriding '{existing_value}' with '{corrected_value}' to preserve deterministic CUDA execution.",
             file=sys.stderr
         )
 
