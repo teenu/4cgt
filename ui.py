@@ -6,6 +6,7 @@ This module contains the Gradio interface creation and all event handlers.
 
 import random
 import uuid
+from dataclasses import dataclass
 import gradio as gr
 from config import (
     OFFICIAL_RESOLUTIONS, RECOMMENDED_RESOLUTIONS, OPTIMAL_SETTINGS,
@@ -23,6 +24,109 @@ from ui_helpers import (
     trigger_queue_generation, conditional_queue_start
 )
 from config import QUEUE_CONFIG
+
+
+@dataclass
+class QueueUIComponents:
+    """Structured references to queue-related UI elements."""
+
+    add_button: gr.Button
+    status: gr.HTML
+    auto_process: gr.Checkbox
+    clear_button: gr.Button
+    display: gr.HTML
+    remove_input: gr.Textbox
+    trigger_input: gr.Textbox
+
+
+@dataclass
+class GalleryUIComponents:
+    """Structured references to gallery-related UI elements."""
+
+    carousel: gr.Gallery
+    count: gr.HTML
+    clear_button: gr.Button
+
+
+def _build_queue_section() -> QueueUIComponents:
+    """Create the queue management UI section."""
+
+    with gr.Group():
+        gr.HTML("<h4>📋 Generation Queue</h4>")
+        with gr.Row():
+            add_button = gr.Button(
+                "➕ Add to Queue",
+                variant="secondary",
+                size="sm",
+                scale=2
+            )
+            status = gr.HTML(
+                f'<span style="color: gray;">Queue: 0/{QUEUE_CONFIG.MAX_QUEUE_SIZE}</span>'
+            )
+        with gr.Row():
+            auto_process = gr.Checkbox(
+                label="Auto-process queue",
+                value=True,
+                scale=2
+            )
+            clear_button = gr.Button("🗑️ Clear", size="sm", scale=1)
+        display = gr.HTML(
+            '<div class="queue-empty">Queue is empty - add items with "Add to Queue"</div>'
+        )
+        with gr.Column(elem_classes=["hidden-input-wrapper"]):
+            remove_input = gr.Textbox(
+                value="",
+                show_label=False,
+                container=False,
+                elem_id="queue_command_input",
+            )
+        with gr.Column(elem_classes=["hidden-input-wrapper"]):
+            trigger_input = gr.Textbox(
+                value="",
+                show_label=False,
+                container=False,
+                elem_id="queue_trigger_input",
+            )
+
+    return QueueUIComponents(
+        add_button=add_button,
+        status=status,
+        auto_process=auto_process,
+        clear_button=clear_button,
+        display=display,
+        remove_input=remove_input,
+        trigger_input=trigger_input,
+    )
+
+
+def _build_gallery_section() -> GalleryUIComponents:
+    """Create the gallery UI section."""
+
+    with gr.Group():
+        gr.HTML("<h3>🖼️ Session Gallery</h3>")
+        carousel = gr.Gallery(
+            value=[],
+            columns=4,
+            rows=None,
+            height="auto",
+            object_fit="contain",
+            show_label=False,
+            allow_preview=True,
+            preview=True,
+            elem_id="session-gallery",
+            elem_classes=["session-gallery-container"],
+        )
+        with gr.Row():
+            count = gr.HTML(
+                f'<span style="color: gray;">0/{QUEUE_CONFIG.MAX_GALLERY_SIZE} images</span>'
+            )
+            clear_button = gr.Button("🗑️ Clear Gallery", size="sm", variant="secondary")
+
+    return GalleryUIComponents(
+        carousel=carousel,
+        count=count,
+        clear_button=clear_button,
+    )
 
 # ============================================================================
 # GRADIO INTERFACE
@@ -742,47 +846,7 @@ def create_interface(model_path: str = None) -> gr.Blocks:
                     visible=False
                 )
 
-                # Queue controls
-                with gr.Group():
-                    gr.HTML("<h4>📋 Generation Queue</h4>")
-                    with gr.Row():
-                        add_to_queue_btn = gr.Button(
-                            "➕ Add to Queue",
-                            variant="secondary",
-                            size="sm",
-                            scale=2
-                        )
-                        queue_status = gr.HTML(
-                            f'<span style="color: gray;">Queue: 0/{QUEUE_CONFIG.MAX_QUEUE_SIZE}</span>'
-                        )
-                    with gr.Row():
-                        auto_process_checkbox = gr.Checkbox(
-                            label="Auto-process queue",
-                            value=True,
-                            scale=2
-                        )
-                        clear_queue_btn = gr.Button("🗑️ Clear", size="sm", scale=1)
-                    queue_display = gr.HTML(
-                        '<div class="queue-empty">Queue is empty - add items with "Add to Queue"</div>'
-                    )
-                    # Hidden input for queue item removal (triggered by JS)
-                    # Keep visible=True but use CSS to hide - ensures DOM element exists for JS
-                    with gr.Column(elem_classes=["hidden-input-wrapper"]):
-                        queue_remove_input = gr.Textbox(
-                            value="",
-                            show_label=False,
-                            container=False,
-                            elem_id="queue_command_input"
-                        )
-                    # Hidden input for queue auto-processing trigger
-                    # Uses Gradio-native .change() event instead of JS polling
-                    with gr.Column(elem_classes=["hidden-input-wrapper"]):
-                        queue_trigger_input = gr.Textbox(
-                            value="",
-                            show_label=False,
-                            container=False,
-                            elem_id="queue_trigger_input"
-                        )
+                queue_ui = _build_queue_section()
 
             # Output column
             with gr.Column(scale=2):
@@ -801,25 +865,7 @@ def create_interface(model_path: str = None) -> gr.Blocks:
                     )
 
                 # Session Gallery - auto-scaling thumbnails with scroll support
-                with gr.Group():
-                    gr.HTML("<h4>📷 Session Gallery</h4>")
-                    with gr.Column(elem_classes=["session-gallery-container"]):
-                        gallery_carousel = gr.Gallery(
-                            value=[],
-                            columns=4,  # 4 columns for ~256px thumbnails in standard width
-                            rows=None,  # Auto-expand rows as needed
-                            height="auto",  # Let content determine height
-                            object_fit="contain",  # Scale without cropping
-                            show_label=False,
-                            allow_preview=True,  # Allow clicking to see full size
-                            preview=True,
-                            elem_id="session-gallery"
-                        )
-                    with gr.Row():
-                        gallery_clear_btn = gr.Button("🗑️ Clear Gallery", size="sm", scale=1)
-                        gallery_count = gr.HTML(
-                            f'<span style="color: gray;">0/{QUEUE_CONFIG.MAX_GALLERY_SIZE} images</span>'
-                        )
+                gallery_ui = _build_gallery_section()
 
         with gr.Row():
             reset_btn = gr.Button("🔄 Reset to Optimal", variant="secondary", size="sm")
@@ -1196,8 +1242,8 @@ def create_interface(model_path: str = None) -> gr.Blocks:
             inputs=[output_image, generation_info, last_seed_display],  # Use last_seed_display, not seed input
             outputs=[
                 interrupt_btn, generate_btn,
-                gallery_carousel, gallery_count,
-                queue_display, queue_status,
+                gallery_ui.carousel, gallery_ui.count,
+                queue_ui.display, queue_ui.status,
                 should_continue_state
             ]
         ).then(
@@ -1213,15 +1259,15 @@ def create_interface(model_path: str = None) -> gr.Blocks:
         ).then(
             trigger_queue_generation,
             inputs=[should_continue_state],
-            outputs=[interrupt_btn, generate_btn, queue_trigger_input]
+            outputs=[interrupt_btn, generate_btn, queue_ui.trigger_input]
         )
 
         # Queue auto-processing via Gradio-native .change() event
         # This replaces the unreliable JavaScript polling approach
-        queue_trigger_input.change(
+        queue_ui.trigger_input.change(
             conditional_queue_start,
-            inputs=[queue_trigger_input],
-            outputs=[queue_trigger_input, interrupt_btn, generate_btn]
+            inputs=[queue_ui.trigger_input],
+            outputs=[queue_ui.trigger_input, interrupt_btn, generate_btn]
         ).then(
             generate_image_with_progress,
             inputs=gen_inputs,
@@ -1231,8 +1277,8 @@ def create_interface(model_path: str = None) -> gr.Blocks:
             inputs=[output_image, generation_info, last_seed_display],
             outputs=[
                 interrupt_btn, generate_btn,
-                gallery_carousel, gallery_count,
-                queue_display, queue_status,
+                gallery_ui.carousel, gallery_ui.count,
+                queue_ui.display, queue_ui.status,
                 should_continue_state
             ]
         ).then(
@@ -1248,7 +1294,7 @@ def create_interface(model_path: str = None) -> gr.Blocks:
         ).then(
             trigger_queue_generation,
             inputs=[should_continue_state],
-            outputs=[interrupt_btn, generate_btn, queue_trigger_input]
+            outputs=[interrupt_btn, generate_btn, queue_ui.trigger_input]
         )
 
         interrupt_btn.click(
@@ -1257,38 +1303,38 @@ def create_interface(model_path: str = None) -> gr.Blocks:
         )
 
         # Queue event handlers
-        add_to_queue_btn.click(
+        queue_ui.add_button.click(
             add_to_queue,
             inputs=gen_inputs,
-            outputs=[queue_display, queue_status]
+            outputs=[queue_ui.display, queue_ui.status]
         )
 
-        clear_queue_btn.click(
+        queue_ui.clear_button.click(
             clear_queue,
-            outputs=[queue_display, queue_status]
+            outputs=[queue_ui.display, queue_ui.status]
         )
 
-        auto_process_checkbox.change(
+        queue_ui.auto_process.change(
             set_auto_process,
-            inputs=[auto_process_checkbox]
+            inputs=[queue_ui.auto_process]
         )
 
         # Queue item removal via hidden input (triggered by JS)
-        queue_remove_input.change(
+        queue_ui.remove_input.change(
             remove_from_queue,
-            inputs=[queue_remove_input],
-            outputs=[queue_display, queue_status]
+            inputs=[queue_ui.remove_input],
+            outputs=[queue_ui.display, queue_ui.status]
         )
 
         # Gallery event handlers
-        gallery_carousel.select(
+        gallery_ui.carousel.select(
             select_gallery_image,
             outputs=[output_image, generation_info]
         )
 
-        gallery_clear_btn.click(
+        gallery_ui.clear_button.click(
             clear_gallery,
-            outputs=[gallery_carousel, gallery_count]
+            outputs=[gallery_ui.carousel, gallery_ui.count]
         )
 
         # Seed management
