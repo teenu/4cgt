@@ -53,6 +53,10 @@ def _build_queue_section() -> QueueUIComponents:
 
     with gr.Group():
         gr.HTML("<h4>📋 Generation Queue</h4>")
+        gr.Markdown(
+            "Organize multiple generations and let the app process them automatically."
+            " Use the remove buttons in each card to adjust items on the fly."
+        )
         with gr.Row():
             add_button = gr.Button(
                 "➕ Add to Queue",
@@ -104,6 +108,10 @@ def _build_gallery_section() -> GalleryUIComponents:
 
     with gr.Group():
         gr.HTML("<h3>🖼️ Session Gallery</h3>")
+        gr.Markdown(
+            "Browse everything generated in this session. Selecting a thumbnail reloads"
+            " the image and its metadata for easy inspection."
+        )
         carousel = gr.Gallery(
             value=[],
             columns=4,
@@ -850,22 +858,25 @@ def create_interface(model_path: str = None) -> gr.Blocks:
 
             # Output column
             with gr.Column(scale=2):
-                with gr.Group():
-                    gr.HTML("<h3>🖼️ Result</h3>")
-                    output_image = gr.Image(
-                        type="filepath",  # Changed from "pil" for hash consistency
-                        interactive=False,
-                        height=400,
-                        format="png"
-                    )
-                    generation_info = gr.Textbox(
-                        label="Generation Info",
-                        lines=9,  # Increased to show hash
-                        interactive=False
-                    )
+                with gr.Tabs():
+                    with gr.Tab("Latest Result"):
+                        with gr.Group():
+                            gr.HTML("<h3>🖼️ Result</h3>")
+                            output_image = gr.Image(
+                                type="filepath",  # Changed from "pil" for hash consistency
+                                interactive=False,
+                                height=400,
+                                format="png"
+                            )
+                            generation_info = gr.Textbox(
+                                label="Generation Info",
+                                lines=9,  # Increased to show hash
+                                interactive=False
+                            )
 
-                # Session Gallery - auto-scaling thumbnails with scroll support
-                gallery_ui = _build_gallery_section()
+                    # Session Gallery - auto-scaling thumbnails with scroll support
+                    with gr.Tab("Session Gallery"):
+                        gallery_ui = _build_gallery_section()
 
         with gr.Row():
             reset_btn = gr.Button("🔄 Reset to Optimal", variant="secondary", size="sm")
@@ -1229,72 +1240,55 @@ def create_interface(model_path: str = None) -> gr.Blocks:
         # Hidden state for queue processing continuation
         should_continue_state = gr.State(value=False)
 
+        def attach_generation_pipeline(pipeline_starter):
+            """Apply the full generation/queue/gallery chain to a starter event."""
+            return (
+                pipeline_starter.then(
+                    generate_image_with_progress,
+                    inputs=gen_inputs,
+                    outputs=gen_outputs
+                ).then(
+                    finish_generation_with_gallery,
+                    inputs=[output_image, generation_info, last_seed_display],  # Use last_seed_display, not seed input
+                    outputs=[
+                        interrupt_btn, generate_btn,
+                        gallery_ui.carousel, gallery_ui.count,
+                        queue_ui.display, queue_ui.status,
+                        should_continue_state
+                    ]
+                ).then(
+                    process_next_queue_item,
+                    inputs=[should_continue_state],
+                    outputs=[
+                        final_prompt, negative_prompt, resolution, cfg_scale, steps,
+                        rescale_cfg, seed, use_custom_resolution, custom_width,
+                        custom_height, auto_randomize_seed, adapter_strength,
+                        enable_dora, dora_start_step, dora_toggle_mode, dora_manual_schedule_state,
+                        should_continue_state
+                    ]
+                ).then(
+                    trigger_queue_generation,
+                    inputs=[should_continue_state],
+                    outputs=[interrupt_btn, generate_btn, queue_ui.trigger_input]
+                )
+            )
+
         # Generation handlers with queue/gallery support
-        generate_btn.click(
-            start_generation,
-            outputs=[interrupt_btn, generate_btn]
-        ).then(
-            generate_image_with_progress,
-            inputs=gen_inputs,
-            outputs=gen_outputs
-        ).then(
-            finish_generation_with_gallery,
-            inputs=[output_image, generation_info, last_seed_display],  # Use last_seed_display, not seed input
-            outputs=[
-                interrupt_btn, generate_btn,
-                gallery_ui.carousel, gallery_ui.count,
-                queue_ui.display, queue_ui.status,
-                should_continue_state
-            ]
-        ).then(
-            process_next_queue_item,
-            inputs=[should_continue_state],
-            outputs=[
-                final_prompt, negative_prompt, resolution, cfg_scale, steps,
-                rescale_cfg, seed, use_custom_resolution, custom_width,
-                custom_height, auto_randomize_seed, adapter_strength,
-                enable_dora, dora_start_step, dora_toggle_mode, dora_manual_schedule_state,
-                should_continue_state
-            ]
-        ).then(
-            trigger_queue_generation,
-            inputs=[should_continue_state],
-            outputs=[interrupt_btn, generate_btn, queue_ui.trigger_input]
+        attach_generation_pipeline(
+            generate_btn.click(
+                start_generation,
+                outputs=[interrupt_btn, generate_btn]
+            )
         )
 
         # Queue auto-processing via Gradio-native .change() event
         # This replaces the unreliable JavaScript polling approach
-        queue_ui.trigger_input.change(
-            conditional_queue_start,
-            inputs=[queue_ui.trigger_input],
-            outputs=[queue_ui.trigger_input, interrupt_btn, generate_btn]
-        ).then(
-            generate_image_with_progress,
-            inputs=gen_inputs,
-            outputs=gen_outputs
-        ).then(
-            finish_generation_with_gallery,
-            inputs=[output_image, generation_info, last_seed_display],
-            outputs=[
-                interrupt_btn, generate_btn,
-                gallery_ui.carousel, gallery_ui.count,
-                queue_ui.display, queue_ui.status,
-                should_continue_state
-            ]
-        ).then(
-            process_next_queue_item,
-            inputs=[should_continue_state],
-            outputs=[
-                final_prompt, negative_prompt, resolution, cfg_scale, steps,
-                rescale_cfg, seed, use_custom_resolution, custom_width,
-                custom_height, auto_randomize_seed, adapter_strength,
-                enable_dora, dora_start_step, dora_toggle_mode, dora_manual_schedule_state,
-                should_continue_state
-            ]
-        ).then(
-            trigger_queue_generation,
-            inputs=[should_continue_state],
-            outputs=[interrupt_btn, generate_btn, queue_ui.trigger_input]
+        attach_generation_pipeline(
+            queue_ui.trigger_input.change(
+                conditional_queue_start,
+                inputs=[queue_ui.trigger_input],
+                outputs=[queue_ui.trigger_input, interrupt_btn, generate_btn]
+            )
         )
 
         interrupt_btn.click(
