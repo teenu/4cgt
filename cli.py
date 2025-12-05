@@ -260,12 +260,13 @@ Examples:
     mode_group.add_argument(
         "--gui",
         action="store_true",
-        default=True,
+        default=False,
         help="Launch GUI mode (default)"
     )
     mode_group.add_argument(
         "--cli",
         action="store_true",
+        default=False,
         help="Use CLI mode for batch generation"
     )
 
@@ -420,10 +421,14 @@ Examples:
     args = parser.parse_args()
 
     # Normalize mode flags to a single source of truth (GUI default)
-    if args.cli:
+    if args.gui:
+        args.cli = False
+    elif args.cli:
         args.gui = False
     else:
+        # Neither flag provided: default to GUI
         args.gui = True
+        args.cli = False
 
     # Process --lan flag (convenient shortcut for LAN access)
     if args.lan:
