@@ -10,6 +10,25 @@ import time
 import random
 import gc
 import threading
+
+# ============================================================================
+# DETERMINISM BOOTSTRAP (MUST RUN BEFORE ANY TORCH IMPORTS)
+# ============================================================================
+# When the engine is imported directly (e.g., unit tests or embedding), main.py
+# is bypassed and CUBLAS_WORKSPACE_CONFIG may not be set. CUDA requires this
+# variable to enforce deterministic algorithms; if it is missing or incorrect,
+# PyTorch will silently fall back to non-deterministic kernels. Configure it
+# defensively here so deterministic mode is guaranteed regardless of entrypoint.
+if "CUBLAS_WORKSPACE_CONFIG" not in os.environ:
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+else:
+    _cublas_value = os.environ["CUBLAS_WORKSPACE_CONFIG"]
+    if _cublas_value not in (":4096:8", ":16:8"):
+        raise RuntimeError(
+            "CUBLAS_WORKSPACE_CONFIG must be ':4096:8' or ':16:8' for deterministic CUDA execution. "
+            f"Current value: '{_cublas_value}'."
+        )
+
 import torch
 from diffusers import StableDiffusionXLPipeline, EulerDiscreteScheduler, AutoencoderKL
 from PIL import Image
