@@ -35,24 +35,25 @@ torch.use_deterministic_algorithms(True, warn_only=False)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
-def _collect_determinism_issues(device: str) -> List[str]:
-    """Return user-facing issues that block strict determinism on the platform."""
+def _collect_determinism_issues(device: str) -> Tuple[List[str], List[str]]:
+    """Return blocking determinism issues and non-blocking notices for the platform."""
 
-    issues = []
+    blocking_issues: List[str] = []
+    warnings: List[str] = []
 
     if device == "cuda":
         cublas_config = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
         if cublas_config not in [":4096:8", ":16:8"]:
-            issues.append(
+            blocking_issues.append(
                 "Set CUBLAS_WORKSPACE_CONFIG to ':4096:8' or ':16:8' before launching to enable deterministic CUDA kernels."
             )
 
     if device == "mps":
-        issues.append(
+        warnings.append(
             "The PyTorch MPS backend does not currently guarantee full determinism. Use CUDA or CPU for strict reproducibility."
         )
 
-    return issues
+    return blocking_issues, warnings
 
 
 # Platform-specific determinism settings
@@ -104,11 +105,16 @@ class NoobAIEngine:
                 logger.info(f"Using device: {self._device.upper()}")
 
                 # Validate platform determinism requirements before heavy initialization
-                determinism_issues = _collect_determinism_issues(self._device)
+                determinism_issues, determinism_warnings = _collect_determinism_issues(self._device)
                 if determinism_issues:
                     formatted_issues = "\n- " + "\n- ".join(determinism_issues)
                     raise RuntimeError(
                         "Strict determinism is required but cannot be guaranteed on this platform:" + formatted_issues
+                    )
+                if determinism_warnings:
+                    formatted_warnings = "\n- " + "\n- ".join(determinism_warnings)
+                    logger.warning(
+                        "Determinism safeguards are enabled where supported, but limitations exist on this platform:" + formatted_warnings
                     )
 
                 # Detect and validate model precision
