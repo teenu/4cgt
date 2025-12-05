@@ -35,6 +35,15 @@ torch.use_deterministic_algorithms(True, warn_only=False)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
+# Disable TF32 everywhere to avoid backend-specific variance (quality priority)
+try:
+    if hasattr(torch.backends, "cuda"):
+        torch.backends.cuda.matmul.allow_tf32 = False
+    if hasattr(torch.backends, "cudnn"):
+        torch.backends.cudnn.allow_tf32 = False
+except Exception as tf32_error:
+    logger.warning(f"Could not disable TF32; deterministic parity may be affected: {tf32_error}")
+
 def _collect_determinism_issues(device: str) -> Tuple[List[str], List[str]]:
     """Return blocking determinism issues and non-blocking notices for the platform."""
 
