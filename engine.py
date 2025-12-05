@@ -1184,7 +1184,8 @@ class NoobAIEngine:
                 f"Negative prompt too long ({len(negative_prompt)} > {GEN_CONFIG.MAX_PROMPT_LENGTH})"
             )
 
-        # Validate dimensions
+        # Validate dimensions (coerce once and reuse validated values)
+        validated_dims: Dict[str, int] = {}
         for dim_name, dim_value in [("width", width), ("height", height)]:
             if not isinstance(dim_value, int):
                 try:
@@ -1201,6 +1202,10 @@ class NoobAIEngine:
                 raise InvalidParameterError(
                     f"{dim_name} must be divisible by 8, got {dim_value}"
                 )
+            validated_dims[dim_name] = dim_value
+
+        width = validated_dims["width"]
+        height = validated_dims["height"]
 
         # Validate CFG parameters
         if not isinstance(cfg_scale, (int, float)):
