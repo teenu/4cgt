@@ -156,6 +156,41 @@ class NoobAIEngine:
                 else:
                     inference_dtype = torch.float32
 
+                # Decide module placement strategy based on platform capabilities
+                device_map = None
+                max_memory = None
+                cpu_offload_planned = False
+
+                if self._device == "cuda":
+                    try:
+                        total_vram_bytes = torch.cuda.get_device_properties(0).total_memory
+                        total_vram_gb = total_vram_bytes / (1024 ** 3)
+
+                        if total_vram_gb < 8.0:
+                            device_map = "auto"
+                            max_memory = {0: f"{int(total_vram_gb)}GiB", "cpu": "32GiB"}
+                            cpu_offload_planned = True
+                            logger.info(
+                                "Using CUDA device_map 'auto' with max_memory %s (VRAM %.1fGB)",
+                                max_memory,
+                                total_vram_gb,
+                            )
+                        else:
+                            device_map = "balanced"
+                            logger.info("Using CUDA device_map 'balanced' for module placement")
+                    except Exception as vram_detect_error:
+                        device_map = "balanced"
+                        logger.debug(
+                            "Could not detect VRAM size, defaulting to balanced device_map: %s",
+                            vram_detect_error,
+                        )
+                elif self._device == "mps":
+                    device_map = "mps"
+                    logger.info("Using MPS device_map 'mps' for module placement")
+                else:
+                    device_map = "cpu"
+                    logger.info("Using CPU device_map for module placement")
+
                 # Load FP32 pre-converted model or BF16 model with precision selection
                 if base_precision == torch.float32 and is_directory:
                     # CRITICAL FIX: Explicitly load VAE as FP32 for lossless decode
@@ -176,6 +211,8 @@ class NoobAIEngine:
                         self.model_path,
                         vae=vae,
                         torch_dtype=inference_dtype,
+                        device_map=device_map,
+                        max_memory=max_memory,
                         # NOTE: torch_dtype parameter may be ignored for some components
                         # but we explicitly set VAE above to guarantee FP32 decode
                     )
@@ -221,6 +258,8 @@ class NoobAIEngine:
                         self.model_path,
                         torch_dtype=inference_dtype,
                         use_safetensors=True,
+                        device_map=device_map,
+                        max_memory=max_memory,
                     )
 
                     # Upcast VAE to FP32 for consistent decoding regardless of inference dtype
@@ -271,6 +310,12 @@ class NoobAIEngine:
                     inference_dtype,
                 )
 
+                # Configure CPU offload immediately after loading when planned
+                if cpu_offload_planned:
+                    self.pipe.enable_sequential_cpu_offload()
+                    self._cpu_offload_enabled = True
+                    logger.info("Sequential CPU offload enabled during initialization")
+
                 # Configure scheduler
                 self.pipe.scheduler = EulerDiscreteScheduler.from_config(
                     self.pipe.scheduler.config,
@@ -280,20 +325,21 @@ class NoobAIEngine:
                 )
 
                 # Move to device and configure memory management
-                if self._device == "cuda":
-                    try:
-                        vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-                        if vram_gb < 8.0:
-                            self.pipe.enable_sequential_cpu_offload()
-                            self._cpu_offload_enabled = True
-                            logger.info(f"CPU offloading enabled ({vram_gb:.1f}GB VRAM)")
-                        else:
+                if not self._cpu_offload_enabled:
+                    if self._device == "cuda":
+                        try:
+                            vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                            if vram_gb < 8.0:
+                                self.pipe.enable_sequential_cpu_offload()
+                                self._cpu_offload_enabled = True
+                                logger.info(f"CPU offloading enabled ({vram_gb:.1f}GB VRAM) after device move")
+                            else:
+                                self.pipe = self.pipe.to(self._device)
+                        except Exception as vram_check_error:
+                            logger.debug(f"Could not detect VRAM size, loading to device directly: {vram_check_error}")
                             self.pipe = self.pipe.to(self._device)
-                    except Exception as vram_check_error:
-                        logger.debug(f"Could not detect VRAM size, loading to device directly: {vram_check_error}")
+                    else:
                         self.pipe = self.pipe.to(self._device)
-                else:
-                    self.pipe = self.pipe.to(self._device)
 
                 # Enable memory optimizations
                 self.pipe.enable_vae_slicing()
