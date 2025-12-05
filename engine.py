@@ -228,7 +228,7 @@ class NoobAIEngine:
                     if os.path.isdir(vae_path):
                         vae = AutoencoderKL.from_pretrained(
                             vae_path,
-                            torch_dtype=torch.float32,
+                            dtype=torch.float32,
                         )
                         logger.info("VAE loaded as FP32 from directory for lossless decode")
                     else:
@@ -239,10 +239,10 @@ class NoobAIEngine:
                     self.pipe = StableDiffusionXLPipeline.from_pretrained(
                         self.model_path,
                         vae=vae,
-                        torch_dtype=inference_dtype,
+                        dtype=inference_dtype,
                         device_map=device_map,
                         max_memory=max_memory,
-                        # NOTE: torch_dtype parameter may be ignored for some components
+                        # NOTE: dtype parameter may be ignored for some components
                         # but we explicitly set VAE above to guarantee FP32 decode
                     )
 
@@ -297,7 +297,7 @@ class NoobAIEngine:
                     # load the full pipeline first, then upcast the VAE for lossless decode.
                     self.pipe = StableDiffusionXLPipeline.from_single_file(
                         self.model_path,
-                        torch_dtype=inference_dtype,
+                        dtype=inference_dtype,
                         use_safetensors=True,
                         device_map=device_map,
                         max_memory=max_memory,
