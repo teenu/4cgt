@@ -31,20 +31,33 @@ from utils import (
 # DETERMINISM ENFORCEMENT
 # ============================================================================
 # Enable deterministic algorithms for reproducible outputs across platforms
-torch.use_deterministic_algorithms(True, warn_only=True)
+torch.use_deterministic_algorithms(True, warn_only=False)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
+
+def _collect_determinism_issues(device: str) -> List[str]:
+    """Return user-facing issues that block strict determinism on the platform."""
+
+    issues = []
+
+    if device == "cuda":
+        cublas_config = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
+        if cublas_config not in [":4096:8", ":16:8"]:
+            issues.append(
+                "Set CUBLAS_WORKSPACE_CONFIG to ':4096:8' or ':16:8' before launching to enable deterministic CUDA kernels."
+            )
+
+    if device == "mps":
+        issues.append(
+            "The PyTorch MPS backend does not currently guarantee full determinism. Use CUDA or CPU for strict reproducibility."
+        )
+
+    return issues
+
 
 # Platform-specific determinism settings
 if torch.cuda.is_available():
     # CUBLAS_WORKSPACE_CONFIG is set in main.py before torch import
-    # Verify it was set correctly
-    cublas_config = os.environ.get('CUBLAS_WORKSPACE_CONFIG')
-    if cublas_config not in [':4096:8', ':16:8']:
-        logger.warning(
-            f"CUBLAS_WORKSPACE_CONFIG is '{cublas_config}' "
-            f"(expected ':4096:8' or ':16:8'). Determinism may be affected."
-        )
     torch.cuda.manual_seed_all(0)
 
 if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
@@ -89,6 +102,14 @@ class NoobAIEngine:
                     self._device = "cpu"
 
                 logger.info(f"Using device: {self._device.upper()}")
+
+                # Validate platform determinism requirements before heavy initialization
+                determinism_issues = _collect_determinism_issues(self._device)
+                if determinism_issues:
+                    formatted_issues = "\n- " + "\n- ".join(determinism_issues)
+                    raise RuntimeError(
+                        "Strict determinism is required but cannot be guaranteed on this platform:" + formatted_issues
+                    )
 
                 # Detect and validate model precision
                 base_precision = detect_base_model_precision(self.model_path)
@@ -235,6 +256,12 @@ class NoobAIEngine:
                 finally:
                     self.pipe = None
             logger.error(f"Failed to initialize engine: {e}")
+            deterministic_error = "deterministic" in str(e).lower()
+            if deterministic_error:
+                raise RuntimeError(
+                    f"Deterministic initialization failed: {e}. "
+                    "Ensure required environment variables are set and run on a backend with deterministic support."
+                )
             raise
         except Exception as e:
             self.is_initialized = False
