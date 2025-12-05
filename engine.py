@@ -226,7 +226,6 @@ class NoobAIEngine:
 
                     # Validate actual loaded precision matches expected settings
                     actual_unet_dtype = next(self.pipe.unet.parameters()).dtype
-                    actual_te_dtype = next(self.pipe.text_encoder.parameters()).dtype
                     actual_vae_dtype = next(self.pipe.vae.parameters()).dtype
 
                     if actual_unet_dtype != inference_dtype:
@@ -234,11 +233,23 @@ class NoobAIEngine:
                             f"Expected {inference_dtype} model but UNet loaded with {actual_unet_dtype}. "
                             f"Directory may contain wrong precision weights."
                         )
-                    if actual_te_dtype != inference_dtype:
-                        raise ValueError(
-                            f"Expected {inference_dtype} model but TextEncoder loaded with {actual_te_dtype}. "
-                            f"Directory may contain wrong precision weights."
-                        )
+
+                    if hasattr(self.pipe, "text_encoder"):
+                        actual_te_dtype = next(self.pipe.text_encoder.parameters()).dtype
+                        if actual_te_dtype != inference_dtype:
+                            raise ValueError(
+                                f"Expected {inference_dtype} model but TextEncoder loaded with {actual_te_dtype}. "
+                                f"Directory may contain wrong precision weights."
+                            )
+
+                    if hasattr(self.pipe, "text_encoder_2"):
+                        actual_te2_dtype = next(self.pipe.text_encoder_2.parameters()).dtype
+                        if actual_te2_dtype != inference_dtype:
+                            raise ValueError(
+                                f"Expected {inference_dtype} model but TextEncoder 2 loaded with {actual_te2_dtype}. "
+                                f"Directory may contain wrong precision weights."
+                            )
+
                     if actual_vae_dtype != torch.float32:
                         raise ValueError(
                             f"Expected FP32 VAE but loaded with {actual_vae_dtype}. "
@@ -286,7 +297,6 @@ class NoobAIEngine:
 
                     # Validate component dtypes after adjustments
                     actual_unet_dtype = next(self.pipe.unet.parameters()).dtype
-                    actual_te_dtype = next(self.pipe.text_encoder.parameters()).dtype
                     actual_vae_dtype = next(self.pipe.vae.parameters()).dtype
 
                     if actual_unet_dtype != inference_dtype:
@@ -294,11 +304,23 @@ class NoobAIEngine:
                             f"Expected {inference_dtype} model but UNet loaded with {actual_unet_dtype}. "
                             "Single-file weights may be in an unexpected precision."
                         )
-                    if actual_te_dtype != inference_dtype:
-                        raise ValueError(
-                            f"Expected {inference_dtype} model but TextEncoder loaded with {actual_te_dtype}. "
-                            "Single-file weights may be in an unexpected precision."
-                        )
+
+                    if hasattr(self.pipe, "text_encoder"):
+                        actual_te_dtype = next(self.pipe.text_encoder.parameters()).dtype
+                        if actual_te_dtype != inference_dtype:
+                            raise ValueError(
+                                f"Expected {inference_dtype} model but TextEncoder loaded with {actual_te_dtype}. "
+                                "Single-file weights may be in an unexpected precision."
+                            )
+
+                    if hasattr(self.pipe, "text_encoder_2"):
+                        actual_te2_dtype = next(self.pipe.text_encoder_2.parameters()).dtype
+                        if actual_te2_dtype != inference_dtype:
+                            raise ValueError(
+                                f"Expected {inference_dtype} model but TextEncoder 2 loaded with {actual_te2_dtype}. "
+                                "Single-file weights may be in an unexpected precision."
+                            )
+
                     if actual_vae_dtype != torch.float32:
                         raise ValueError(
                             f"Expected FP32 VAE but loaded with {actual_vae_dtype}. "
