@@ -191,14 +191,14 @@ class NoobAIEngine:
                         total_vram_gb = total_vram_bytes / (1024 ** 3)
 
                         if total_vram_gb < 8.0:
-                            device_map = "balanced"
-                            max_memory = {0: f"{int(total_vram_gb)}GiB", "cpu": "32GiB"}
+                            # Sequential CPU offload is incompatible with pre-set device_map placement,
+                            # so we load without a device_map and rely on offload after initialization.
+                            device_map = None
+                            max_memory = None
                             cpu_offload_planned = True
-                            using_device_map = True
                             logger.info(
-                                "Low VRAM detected (%.1fGB); using CUDA device_map 'balanced' with max_memory %s and planning sequential CPU offload",
+                                "Low VRAM detected (%.1fGB); loading without device_map and planning sequential CPU offload",
                                 total_vram_gb,
-                                max_memory,
                             )
                         else:
                             device_map = "balanced"
