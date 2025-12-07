@@ -29,7 +29,7 @@ else:
 import atexit
 from config import logger, OUTPUT_DIR
 from state import perf_monitor, resource_pool
-from ui_helpers import get_engine_safely
+from ui.engine_manager import get_engine_safely
 from prompt_formatter import get_prompt_data
 from ui import create_interface
 from cli import cli_list_adapters, cli_generate, parse_args
