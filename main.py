@@ -9,6 +9,7 @@ both GUI and CLI interfaces.
 import os
 import sys
 import signal
+import threading
 
 # ============================================================================
 # DETERMINISM SETUP - CRITICAL: Must be set before ANY PyTorch imports
@@ -38,8 +39,20 @@ from cli import cli_list_adapters, cli_generate, parse_args
 # CLEANUP
 # ============================================================================
 
+# Flag to prevent duplicate cleanup (signal handler + atexit)
+_cleanup_done = False
+_cleanup_lock = threading.Lock()
+
 def cleanup_resources():
     """Clean up resources on application exit."""
+    global _cleanup_done
+
+    # Prevent duplicate cleanup
+    with _cleanup_lock:
+        if _cleanup_done:
+            return
+        _cleanup_done = True
+
     errors = []
 
     # Attempt engine cleanup
@@ -69,11 +82,26 @@ atexit.register(cleanup_resources)
 # SIGNAL HANDLERS
 # ============================================================================
 
+# Cleanup timeout in seconds - prevents hanging on stuck GPU operations
+CLEANUP_TIMEOUT_SECONDS = 5.0
+
 def signal_handler(signum, frame):
-    """Handle interrupt signals (SIGINT, SIGTERM) for clean shutdown."""
+    """Handle interrupt signals (SIGINT, SIGTERM) for clean shutdown with timeout."""
     sig_name = signal.Signals(signum).name
     logger.info(f"Received {sig_name}, cleaning up...")
-    cleanup_resources()
+
+    # Run cleanup in a separate thread with timeout to prevent hanging
+    # This is necessary because cleanup may block on GPU synchronization
+    # or lock acquisition if generation is in progress
+    cleanup_thread = threading.Thread(target=cleanup_resources, daemon=True)
+    cleanup_thread.start()
+    cleanup_thread.join(timeout=CLEANUP_TIMEOUT_SECONDS)
+
+    if cleanup_thread.is_alive():
+        logger.warning(f"Cleanup timed out after {CLEANUP_TIMEOUT_SECONDS}s, forcing exit")
+    else:
+        logger.info("Cleanup completed successfully")
+
     sys.exit(0)
 
 # Register signal handlers for clean shutdown

@@ -5,7 +5,7 @@ import gradio as gr
 from typing import Tuple, Optional
 from config import logger, OUTPUT_DIR, InvalidParameterError, GenerationInterruptedError
 from state import state_manager, GenerationState
-from ui.engine_manager import get_engine_safely, _engine_lock
+from ui.engine_manager import get_engine_safely
 from ui.validation import parse_resolution_string, _coerce_int, _coerce_float, validate_parameters
 from utils import calculate_image_hash, get_user_friendly_error
 
@@ -36,9 +36,11 @@ def generate_image_with_progress(
 ) -> Tuple[Optional[str], str, str]:
     """Generate image with progress tracking."""
     try:
-        with _engine_lock:
-            current_engine = get_engine_safely()
-            engine_ready = current_engine is not None and current_engine.is_initialized
+        # Get engine reference - get_engine_safely() handles its own locking
+        # DO NOT wrap this in _engine_lock as get_engine_safely() already acquires that lock,
+        # and threading.Lock() is not reentrant (would cause deadlock)
+        current_engine = get_engine_safely()
+        engine_ready = current_engine is not None and current_engine.is_initialized
 
         if not engine_ready:
             state_manager.set_state(GenerationState.ERROR)
