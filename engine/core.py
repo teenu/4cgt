@@ -5,7 +5,7 @@ import time
 import random
 import torch
 from PIL import Image, PngImagePlugin
-from typing import Optional, Tuple, Dict, Callable
+from typing import Any, Optional, Tuple, Dict, Callable
 from config import (
     logger, MODEL_CONFIG, DEFAULT_NEGATIVE_PROMPT, OPTIMAL_SETTINGS,
     OFFICIAL_RESOLUTIONS, RECOMMENDED_RESOLUTIONS,
@@ -266,7 +266,7 @@ class NoobAIEngine:
 
             generator = torch.Generator(device="cpu").manual_seed(seed)
 
-            manual_schedule, _ = parse_manual_dora_schedule(dora_toggle_mode, dora_manual_schedule, steps) if dora_toggle_mode == "manual" else (None, None)
+            manual_schedule, _ = parse_manual_dora_schedule(dora_manual_schedule, steps) if dora_toggle_mode == "manual" else (None, None)
 
             if dora_toggle_mode and self.enable_dora and self._dora_manager.dora_loaded:
                 if self.dora_start_step > 1:
