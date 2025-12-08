@@ -14,6 +14,10 @@ def normalize_text(text: str) -> str:
 
 def format_file_size(size_bytes: int) -> str:
     """Format file size in human-readable binary format (1 KiB = 1024 bytes)."""
+    if not isinstance(size_bytes, (int, float)):
+        return "0.00 B"
+    if size_bytes < 0:
+        return "0.00 B"
     for unit in ['B', 'KiB', 'MiB', 'GiB']:
         if size_bytes < 1024.0:
             return f"{size_bytes:.2f} {unit}"

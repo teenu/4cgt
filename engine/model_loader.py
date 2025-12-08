@@ -96,6 +96,13 @@ def load_pipeline(model_path: str, device: str) -> tuple:
             pipe.vae.to(dtype=torch.float32)
             logger.info("Single file model loaded; VAE upcast to FP32 for lossless decode")
         except Exception as vae_error:
+            # Clean up pipeline on VAE upcast failure to prevent resource leak
+            try:
+                del pipe
+            except Exception:
+                pass
+            if device == "cuda":
+                torch.cuda.empty_cache()
             raise ValueError(f"Failed to upcast VAE to FP32: {vae_error}")
 
     pipe.scheduler = EulerDiscreteScheduler.from_config(

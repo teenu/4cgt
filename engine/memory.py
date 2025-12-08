@@ -12,15 +12,15 @@ def synchronize_device(device: str) -> None:
         if device == "mps":
             try:
                 torch.mps.synchronize()
-            except (AttributeError, RuntimeError):
-                pass
+            except (AttributeError, RuntimeError) as e:
+                logger.debug(f"MPS synchronization skipped: {e}")
         elif device == "cuda":
             try:
                 torch.cuda.synchronize()
-            except (AttributeError, RuntimeError):
-                pass
-    except Exception:
-        pass
+            except (AttributeError, RuntimeError) as e:
+                logger.debug(f"CUDA synchronization skipped: {e}")
+    except Exception as e:
+        logger.debug(f"Device synchronization failed: {e}")
 
 
 def clear_memory(device: str) -> None:

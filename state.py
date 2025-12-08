@@ -154,7 +154,11 @@ class ResourcePool:
         """Get existing resource or create new one."""
         with self._lock:
             if key not in self._resources:
-                self._resources[key] = creator_func()
+                try:
+                    self._resources[key] = creator_func()
+                except Exception as e:
+                    logger.error(f"Failed to create resource '{key}': {e}")
+                    raise
             return self._resources[key]
 
     def clear(self):

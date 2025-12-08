@@ -159,7 +159,7 @@ def main():
         logger.info("Application interrupted by user")
         return 0
     except Exception as e:
-        logger.error(f"Application error: {e}")
+        logger.error(f"Application error: {e}", exc_info=True)
         # Print error for CLI mode, re-raise for GUI mode
         if args is not None and (args.cli or (hasattr(args, 'list_dora_adapters') and args.list_dora_adapters)):
             print(f"❌ Error: {e}")
