@@ -75,62 +75,22 @@ class ProgressManager:
         if dora_toggle_mode and enable_dora and self.dora_manager.dora_loaded and self.pipe:
             next_step_index = step_index + 1
 
-            if dora_toggle_mode == "standard":
-                return self._handle_standard_toggle(step_index, current_step, steps, eta, next_step_index)
-            elif dora_toggle_mode == "smart":
-                return self._handle_smart_toggle(step_index, current_step, steps, eta, next_step_index)
-            elif dora_toggle_mode == "manual":
+            if dora_toggle_mode in ["manual", "optimized"]:
+                # Both manual and optimized modes use schedule-based toggling
                 return self._handle_manual_toggle(step_index, current_step, steps, eta, next_step_index, manual_schedule)
 
         elif enable_dora and self.dora_manager.dora_loaded and self.pipe:
-            if current_step == dora_start_step - 1 and dora_start_step > 1:
+            # Using 0-based indexing: step_index matches dora_start_step directly
+            if step_index == dora_start_step - 1 and dora_start_step > 0:
+                # Activate DoRA on the step before dora_start_step
                 self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.dora_manager.adapter_strength])
                 return f"Step {current_step}/{steps} (DoRA will activate at step {dora_start_step}, ETA: {eta:.1f}s)"
-            elif current_step >= dora_start_step:
+            elif step_index >= dora_start_step:
                 return f"Step {current_step}/{steps} (DoRA active, ETA: {eta:.1f}s)"
             else:
                 return f"Step {current_step}/{steps} (DoRA starts at step {dora_start_step}, ETA: {eta:.1f}s)"
 
         return f"Step {current_step}/{steps} (ETA: {eta:.1f}s)"
-
-    def _handle_standard_toggle(self, step_index: int, current_step: int, steps: int, eta: float, next_step_index: int) -> str:
-        """Handle standard toggle mode progress description."""
-        if next_step_index < steps:
-            current_state = "ON" if step_index % 2 == 0 else "OFF"
-            with self._toggle_lock:
-                synchronize_device(self.device)
-                if next_step_index % 2 == 0:
-                    self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.dora_manager.adapter_strength])
-                    return f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: ON, ETA: {eta:.1f}s)"
-                else:
-                    self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
-                    return f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: OFF, ETA: {eta:.1f}s)"
-        else:
-            current_state = "ON" if step_index % 2 == 0 else "OFF"
-            return f"Step {current_step}/{steps} (DoRA: {current_state}, final, ETA: {eta:.1f}s)"
-
-    def _handle_smart_toggle(self, step_index: int, current_step: int, steps: int, eta: float, next_step_index: int) -> str:
-        """Handle smart toggle mode progress description."""
-        if next_step_index < steps:
-            with self._toggle_lock:
-                synchronize_device(self.device)
-                if next_step_index <= 19:
-                    current_state = "ON" if step_index % 2 == 0 else "OFF"
-                    if next_step_index % 2 == 0:
-                        self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.dora_manager.adapter_strength])
-                        return f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: ON, ETA: {eta:.1f}s)"
-                    else:
-                        self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
-                        return f"Step {current_step}/{steps} (DoRA: {current_state}, next[{next_step_index}]: OFF, ETA: {eta:.1f}s)"
-                else:
-                    self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.dora_manager.adapter_strength])
-                    return f"Step {current_step}/{steps} (DoRA: ON [smart-locked], next[{next_step_index}]: ON, ETA: {eta:.1f}s)"
-        else:
-            if step_index <= 19:
-                current_state = "ON" if step_index % 2 == 0 else "OFF"
-            else:
-                current_state = "ON"
-            return f"Step {current_step}/{steps} (DoRA: {current_state}, final, ETA: {eta:.1f}s)"
 
     def _handle_manual_toggle(
         self,
@@ -180,12 +140,14 @@ class ProgressManager:
         if not enable_dora or not self.dora_manager.dora_loaded or not self.pipe:
             return
 
-        if dora_start_step > 1 and not dora_toggle_mode:
+        if dora_start_step > 0 and not dora_toggle_mode:
+            # Start step > 0 means DoRA should be OFF initially (0-based indexing)
             self.pipe.set_adapters(["noobai_dora"], adapter_weights=[0.0])
             return
 
         if dora_toggle_mode:
-            if dora_toggle_mode == "manual":
+            if dora_toggle_mode in ["manual", "optimized"]:
+                # For manual and optimized modes, use the schedule to determine initial state
                 if manual_schedule and len(manual_schedule) > 0 and manual_schedule[0] == 1:
                     self.pipe.set_adapters(["noobai_dora"], adapter_weights=[self.dora_manager.adapter_strength])
                 else:

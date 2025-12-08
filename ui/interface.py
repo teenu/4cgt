@@ -4,7 +4,8 @@ import random
 import gradio as gr
 from config import (
     OFFICIAL_RESOLUTIONS, RECOMMENDED_RESOLUTIONS, OPTIMAL_SETTINGS,
-    GEN_CONFIG, MODEL_CONFIG, DEFAULT_POSITIVE_PREFIX, DEFAULT_NEGATIVE_PROMPT
+    GEN_CONFIG, MODEL_CONFIG, DEFAULT_POSITIVE_PREFIX, DEFAULT_NEGATIVE_PROMPT,
+    OPTIMIZED_DORA_SETTINGS, OPTIMIZED_DORA_SCHEDULE_CSV
 )
 from ui.engine_manager import (
     is_engine_ready, auto_initialize, get_dora_ui_state,
@@ -20,7 +21,7 @@ from ui.generation import (
     finish_generation, interrupt_generation
 )
 from ui.styles import CSS_STYLES, JAVASCRIPT_HEAD
-from utils import generate_standard_schedule, generate_smart_schedule, parse_manual_dora_schedule
+from utils import parse_manual_dora_schedule
 
 
 def generate_dora_grid(num_steps: int, schedule_csv: str = "") -> str:
@@ -217,19 +218,19 @@ def create_interface(model_path: str = None) -> gr.Blocks:
                                 step=1,
                                 value=OPTIMAL_SETTINGS['dora_start_step'],
                                 visible=default_enable_dora,
-                                info="Step at which DoRA adapter activates"
+                                info="Step at which DoRA adapter activates (0 = first step)"
                             )
                             dora_start_step_status = gr.HTML(
-                                '<div style="color: green;">✅ Start at step 1</div>',
+                                '<div style="color: green;">✅ Start at step 0 (first step)</div>',
                                 visible=default_enable_dora
                             )
 
                             dora_toggle_mode = gr.Radio(
                                 label="🔄 DoRA Toggle Mode",
-                                choices=[("None", None), ("Standard", "standard"), ("Smart", "smart"), ("Manual", "manual")],
+                                choices=[("None", None), ("Manual", "manual"), ("Optimized", "optimized")],
                                 value=None,
                                 visible=default_enable_dora,
-                                info="Standard: ON,OFF throughout. Smart: ON,OFF to step 20, then ON. Manual: Custom grid"
+                                info="Manual: Custom grid. Optimized: Pre-tuned 34-step schedule with locked settings."
                             )
 
                             dora_manual_grid = gr.HTML(value="", visible=False, label="Manual DoRA Schedule")
@@ -243,6 +244,9 @@ def create_interface(model_path: str = None) -> gr.Blocks:
                                 placeholder="e.g., 1, 0, 0, 1, 1, 0",
                                 info="Comma-separated 0/1 values. Click grid cells above or edit manually."
                             )
+
+                            # Hidden state to track programmatic changes (prevents circular event triggers)
+                            is_programmatic_change = gr.State(value=False)
 
                     steps = gr.Slider(
                         label="Steps",
@@ -355,43 +359,86 @@ def create_interface(model_path: str = None) -> gr.Blocks:
 
         dora_refresh_btn.click(refresh_dora_adapters, outputs=[enable_dora, dora_selection])
 
-        # DoRA UI updates
+        # DoRA UI updates - also reset toggle mode and hide grid when disabling
         def update_dora_ui(enable_val):
-            return (
-                gr.update(visible=enable_val),
-                gr.update(visible=enable_val),
-                gr.update(visible=enable_val),
-                gr.update(visible=enable_val),
-                gr.update(visible=enable_val)
-            )
+            if enable_val:
+                return (
+                    gr.update(visible=True),   # adapter_strength
+                    gr.update(visible=True),   # adapter_status
+                    gr.update(visible=True),   # dora_start_step
+                    gr.update(visible=True),   # dora_start_step_status
+                    gr.update(visible=True),   # dora_toggle_mode
+                    gr.update(visible=False),  # dora_manual_grid (hidden until mode selected)
+                    gr.update(visible=False)   # dora_manual_schedule_state
+                )
+            else:
+                return (
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                    gr.update(visible=False, value=None),  # Reset toggle mode to None
+                    gr.update(visible=False),
+                    gr.update(visible=False)
+                )
 
         enable_dora.change(
             update_dora_ui,
             inputs=[enable_dora],
-            outputs=[adapter_strength, adapter_status, dora_start_step, dora_start_step_status, dora_toggle_mode]
+            outputs=[adapter_strength, adapter_status, dora_start_step, dora_start_step_status,
+                     dora_toggle_mode, dora_manual_grid, dora_manual_schedule_state]
         )
 
-        # DoRA toggle mode changes
-        def update_toggle_ui(toggle_mode, num_steps):
+        # DoRA toggle mode changes - comprehensive handler with state management
+        def handle_toggle_mode_change(toggle_mode, num_steps, is_programmatic):
+            """Handle DoRA toggle mode changes with full state management."""
+            if is_programmatic:
+                # Reset flag, no other changes
+                return (gr.update(), gr.update(), gr.update(), gr.update(),
+                        gr.update(), gr.update(), gr.update(), False)
+
             try:
                 steps_int = max(int(num_steps), 1)
             except (TypeError, ValueError):
                 steps_int = 1
 
-            if toggle_mode == "manual":
+            if toggle_mode == "optimized":
+                opt = OPTIMIZED_DORA_SETTINGS
+                grid_html = generate_dora_grid(opt['steps'], OPTIMIZED_DORA_SCHEDULE_CSV)
+                return (
+                    gr.update(visible=True, value=grid_html),           # dora_manual_grid
+                    gr.update(value=OPTIMIZED_DORA_SCHEDULE_CSV, visible=False),  # dora_manual_schedule_state
+                    gr.update(interactive=False, value=0),              # dora_start_step (disabled)
+                    gr.update(value=opt['cfg_scale']),                  # cfg_scale
+                    gr.update(value=opt['rescale_cfg']),                # rescale_cfg
+                    gr.update(value=opt['adapter_strength']),           # adapter_strength
+                    gr.update(value=opt['steps']),                      # steps
+                    True                                                 # is_programmatic_change
+                )
+            elif toggle_mode == "manual":
                 grid_html = generate_dora_grid(steps_int)
-                return gr.update(visible=True, value=grid_html), gr.update(visible=True)
-            elif toggle_mode in ["standard", "smart"]:
-                if toggle_mode == "standard":
-                    schedule = generate_standard_schedule(steps_int)
-                else:
-                    schedule = generate_smart_schedule(steps_int)
-                schedule_csv = ", ".join(str(x) for x in schedule)
-                return gr.update(visible=False), gr.update(value=schedule_csv, visible=False)
-            else:
-                return gr.update(visible=False), gr.update(visible=False)
+                return (
+                    gr.update(visible=True, value=grid_html),
+                    gr.update(visible=True),
+                    gr.update(interactive=False),                        # disabled for manual too
+                    gr.update(), gr.update(), gr.update(), gr.update(),
+                    False
+                )
+            else:  # None
+                return (
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                    gr.update(interactive=True),                         # enabled for None
+                    gr.update(), gr.update(), gr.update(), gr.update(),
+                    False
+                )
 
-        dora_toggle_mode.change(update_toggle_ui, inputs=[dora_toggle_mode, steps], outputs=[dora_manual_grid, dora_manual_schedule_state])
+        dora_toggle_mode.change(
+            handle_toggle_mode_change,
+            inputs=[dora_toggle_mode, steps, is_programmatic_change],
+            outputs=[dora_manual_grid, dora_manual_schedule_state, dora_start_step,
+                     cfg_scale, rescale_cfg, adapter_strength, steps, is_programmatic_change]
+        )
 
         # Prompt composition
         compose_btn.click(compose_final_prompt, inputs=all_prompt_inputs, outputs=[final_prompt])
@@ -425,12 +472,59 @@ def create_interface(model_path: str = None) -> gr.Blocks:
             outputs=[resolution, custom_res_row]
         )
 
-        # Status updaters
-        cfg_scale.change(create_status_updater('cfg'), inputs=[cfg_scale], outputs=[cfg_status])
-        steps.change(create_status_updater('steps'), inputs=[steps], outputs=[steps_status])
-        rescale_cfg.change(create_status_updater('rescale'), inputs=[rescale_cfg], outputs=[rescale_status])
-        adapter_strength.change(create_status_updater('adapter'), inputs=[adapter_strength], outputs=[adapter_status])
-        dora_start_step.change(create_status_updater('dora_start_step'), inputs=[dora_start_step], outputs=[dora_start_step_status])
+        # Parameter change handler for detecting optimized mode modifications
+        def handle_param_change_for_optimized(current_toggle_mode, is_programmatic, param_value, param_name):
+            """Check if parameter change should trigger switch from Optimized to Manual."""
+            status_updater = create_status_updater(param_name)
+            status_html = status_updater(param_value)
+
+            if is_programmatic:
+                return status_html, gr.update(), False
+
+            if current_toggle_mode == "optimized":
+                return status_html, gr.update(value="manual"), False
+
+            return status_html, gr.update(), False
+
+        # DoRA start step change handler - auto-switches to None mode
+        def handle_dora_start_step_change(start_step_value, current_toggle_mode):
+            """Handle DoRA start step changes - auto-switch to None mode."""
+            status_html = create_status_updater('dora_start_step')(start_step_value)
+
+            if current_toggle_mode is not None:
+                return (
+                    status_html,
+                    gr.update(value=None),           # Switch toggle mode to None
+                    gr.update(visible=False),        # Hide manual grid
+                    gr.update(visible=False)         # Hide manual schedule state
+                )
+            return status_html, gr.update(), gr.update(), gr.update()
+
+        # Status updaters with optimized mode detection
+        cfg_scale.change(
+            lambda v, m, p: handle_param_change_for_optimized(m, p, v, 'cfg'),
+            inputs=[cfg_scale, dora_toggle_mode, is_programmatic_change],
+            outputs=[cfg_status, dora_toggle_mode, is_programmatic_change]
+        )
+
+        rescale_cfg.change(
+            lambda v, m, p: handle_param_change_for_optimized(m, p, v, 'rescale'),
+            inputs=[rescale_cfg, dora_toggle_mode, is_programmatic_change],
+            outputs=[rescale_status, dora_toggle_mode, is_programmatic_change]
+        )
+
+        adapter_strength.change(
+            lambda v, m, p: handle_param_change_for_optimized(m, p, v, 'adapter'),
+            inputs=[adapter_strength, dora_toggle_mode, is_programmatic_change],
+            outputs=[adapter_status, dora_toggle_mode, is_programmatic_change]
+        )
+
+        # DoRA start step with auto-switch to None
+        dora_start_step.change(
+            handle_dora_start_step_change,
+            inputs=[dora_start_step, dora_toggle_mode],
+            outputs=[dora_start_step_status, dora_toggle_mode, dora_manual_grid, dora_manual_schedule_state]
+        )
 
         # Reset to optimal
         def reset_to_optimal():
@@ -444,36 +538,57 @@ def create_interface(model_path: str = None) -> gr.Blocks:
 
         reset_btn.click(reset_to_optimal, outputs=[cfg_scale, rescale_cfg, steps, adapter_strength, dora_start_step])
 
-        # Update manual grid when steps change
-        def update_manual_grid_on_steps_change(toggle_mode, num_steps, current_schedule):
-            if toggle_mode == "manual":
-                try:
-                    steps_int = max(int(num_steps), 1)
-                except (TypeError, ValueError):
-                    steps_int = 1
+        # Update manual grid when steps change, with optimized mode detection
+        def handle_steps_change(num_steps, toggle_mode, is_programmatic, current_schedule):
+            """Handle steps change with optimized mode detection."""
+            status_html = create_status_updater('steps')(num_steps)
 
+            try:
+                steps_int = max(int(num_steps), 1)
+            except (TypeError, ValueError):
+                steps_int = 1
+
+            if is_programmatic:
+                if toggle_mode == "optimized":
+                    grid_html = generate_dora_grid(OPTIMIZED_DORA_SETTINGS['steps'], OPTIMIZED_DORA_SCHEDULE_CSV)
+                    return (status_html, gr.update(), False, gr.update(value=grid_html),
+                            gr.update(value=OPTIMIZED_DORA_SCHEDULE_CSV), gr.update(maximum=steps_int))
+                return status_html, gr.update(), False, gr.update(), gr.update(), gr.update(maximum=steps_int)
+
+            if toggle_mode == "optimized":
+                # User manually changed steps while in optimized mode -> switch to manual
+                grid_html = generate_dora_grid(steps_int, OPTIMIZED_DORA_SCHEDULE_CSV)
+                return (status_html, gr.update(value="manual"), False,
+                        gr.update(value=grid_html, visible=True),
+                        gr.update(value=OPTIMIZED_DORA_SCHEDULE_CSV, visible=True),
+                        gr.update(maximum=steps_int, interactive=False))
+
+            if toggle_mode == "manual":
                 schedule, _ = parse_manual_dora_schedule(current_schedule, steps_int) if current_schedule else (None, None)
                 grid_html = generate_dora_grid(steps_int, current_schedule if schedule else "")
-                if schedule:
-                    schedule_csv = ", ".join(str(x) for x in schedule)
-                else:
-                    schedule_csv = ", ".join("0" for _ in range(steps_int))
-                return gr.update(value=grid_html), gr.update(value=schedule_csv)
-            elif toggle_mode in ["standard", "smart"]:
-                schedule = generate_standard_schedule(int(num_steps)) if toggle_mode == "standard" else generate_smart_schedule(int(num_steps))
-                schedule_csv = ", ".join(str(x) for x in schedule)
-                return gr.update(), gr.update(value=schedule_csv)
-            return gr.update(), gr.update()
+                schedule_csv = ", ".join(str(x) for x in schedule) if schedule else ", ".join("0" for _ in range(steps_int))
+                return (status_html, gr.update(), False, gr.update(value=grid_html),
+                        gr.update(value=schedule_csv), gr.update(maximum=steps_int))
 
-        steps.change(update_manual_grid_on_steps_change, inputs=[dora_toggle_mode, steps, dora_manual_schedule_state], outputs=[dora_manual_grid, dora_manual_schedule_state])
+            return status_html, gr.update(), False, gr.update(), gr.update(), gr.update(maximum=steps_int, interactive=True)
+
+        steps.change(
+            handle_steps_change,
+            inputs=[steps, dora_toggle_mode, is_programmatic_change, dora_manual_schedule_state],
+            outputs=[steps_status, dora_toggle_mode, is_programmatic_change, dora_manual_grid,
+                     dora_manual_schedule_state, dora_start_step]
+        )
 
         # Update grid when textbox is manually edited
         def update_grid_from_textbox(toggle_mode, num_steps, schedule_csv):
-            if toggle_mode == "manual":
+            if toggle_mode in ["manual", "optimized"]:
                 try:
                     steps_int = max(int(num_steps), 1)
                 except (TypeError, ValueError):
                     steps_int = 1
+                # For optimized mode, use the optimized steps count
+                if toggle_mode == "optimized":
+                    steps_int = OPTIMIZED_DORA_SETTINGS['steps']
                 grid_html = generate_dora_grid(steps_int, schedule_csv)
                 return gr.update(value=grid_html)
             return gr.update()

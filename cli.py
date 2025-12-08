@@ -3,7 +3,7 @@
 import os
 import sys
 import argparse
-from config import logger, OPTIMAL_SETTINGS, MODEL_CONFIG, DEFAULT_NEGATIVE_PROMPT, DORA_SEARCH_DIRECTORIES
+from config import logger, OPTIMAL_SETTINGS, MODEL_CONFIG, DEFAULT_NEGATIVE_PROMPT, DORA_SEARCH_DIRECTORIES, OPTIMIZED_DORA_SETTINGS, OPTIMIZED_DORA_SCHEDULE_CSV
 from utils import (
     discover_dora_adapters, get_dora_adapter_by_name, validate_model_path,
     validate_dora_path, detect_adapter_precision, get_user_friendly_error,
@@ -121,7 +121,18 @@ def cli_generate(args):
             return 1
 
         manual_schedule_csv = None
-        if args.enable_dora and args.dora_toggle_mode == "manual":
+        if args.enable_dora and args.dora_toggle_mode == "optimized":
+            # Optimized mode: use predefined settings and schedule
+            opt = OPTIMIZED_DORA_SETTINGS
+            args.steps = opt['steps']
+            args.cfg_scale = opt['cfg_scale']
+            args.rescale_cfg = opt['rescale_cfg']
+            args.adapter_strength = opt['adapter_strength']
+            manual_schedule_csv = OPTIMIZED_DORA_SCHEDULE_CSV
+            print(f"🎯 Using Optimized DoRA mode:")
+            print(f"   Steps: {opt['steps']}, CFG: {opt['cfg_scale']}, Rescale: {opt['rescale_cfg']}, Strength: {opt['adapter_strength']}")
+            print(f"   Schedule: {len(opt['schedule'])} steps predefined")
+        elif args.enable_dora and args.dora_toggle_mode == "manual":
             if args.dora_manual_schedule:
                 manual_schedule, warning = parse_manual_dora_schedule(args.dora_manual_schedule, args.steps)
                 if warning:
@@ -216,7 +227,7 @@ def parse_args():
     %(prog)s --list-dora-adapters                        # List available adapters
     %(prog)s --cli --prompt "portrait" --enable-dora     # Auto-detect adapter
     %(prog)s --cli --prompt "fantasy" --enable-dora --dora-adapter 0
-    %(prog)s --cli --prompt "landscape" --enable-dora --dora-toggle-mode smart
+    %(prog)s --cli --prompt "landscape" --enable-dora --dora-toggle-mode optimized
     %(prog)s --cli --prompt "portrait" --enable-dora --dora-toggle-mode manual --dora-manual-schedule "1,0,0,1"
 """
     )
@@ -249,8 +260,8 @@ def parse_args():
                           help=f"DoRA strength (default: {OPTIMAL_SETTINGS['adapter_strength']}, range: {MODEL_CONFIG.MIN_ADAPTER_STRENGTH}-{MODEL_CONFIG.MAX_ADAPTER_STRENGTH})")
     cli_group.add_argument("--dora-start-step", type=int, default=OPTIMAL_SETTINGS['dora_start_step'],
                           help=f"DoRA activation step (default: {OPTIMAL_SETTINGS['dora_start_step']})")
-    cli_group.add_argument("--dora-toggle-mode", type=str, choices=["standard", "smart", "manual"],
-                          help="DoRA toggle mode: standard, smart, or manual")
+    cli_group.add_argument("--dora-toggle-mode", type=str, choices=["manual", "optimized"],
+                          help="DoRA toggle mode: manual (custom schedule) or optimized (pre-tuned 34-step schedule)")
     cli_group.add_argument("--dora-manual-schedule", type=str,
                           help="Manual DoRA schedule CSV (e.g., '1,0,0,1')")
     cli_group.add_argument("--verbose", action="store_true", help="Show detailed generation info")

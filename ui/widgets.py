@@ -74,14 +74,14 @@ def create_status_updater(param_type: str):
             value = int(value)
         except (TypeError, ValueError):
             return '<div style="color: red;">❌ Invalid value</div>'
-        if value == 1:
-            return '<div style="color: green;">✅ Start at step 1</div>'
+        if value == 0:
+            return '<div style="color: green;">✅ Start at step 0 (first step)</div>'
         elif value <= 5:
-            return '<div style="color: blue;">🚀 Early activation</div>'
+            return '<div style="color: blue;">🚀 Early activation (step {})'.format(value) + '</div>'
         elif value <= 15:
-            return '<div style="color: orange;">⏰ Mid activation</div>'
+            return '<div style="color: orange;">⏰ Mid activation (step {})'.format(value) + '</div>'
         else:
-            return '<div style="color: purple;">🔄 Late activation</div>'
+            return '<div style="color: purple;">🔄 Late activation (step {})'.format(value) + '</div>'
 
     updaters = {
         'cfg': update_cfg_status,

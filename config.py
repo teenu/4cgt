@@ -47,9 +47,9 @@ class ModelConfig:
     MIN_ADAPTER_STRENGTH: float = 0.0
     MAX_ADAPTER_STRENGTH: float = 2.0
     DEFAULT_ADAPTER_STRENGTH: float = 1.0
-    MIN_DORA_START_STEP: int = 1
+    MIN_DORA_START_STEP: int = 0  # 0-based indexing
     MAX_DORA_START_STEP: int = 100
-    DEFAULT_DORA_START_STEP: int = 1
+    DEFAULT_DORA_START_STEP: int = 0  # 0-based indexing
 
 @dataclass
 class GenerationConfig:
@@ -152,8 +152,18 @@ OPTIMAL_SETTINGS = {
     'width': 1216,
     'height': 832,
     'adapter_strength': 1.0,
-    'dora_start_step': 1,
+    'dora_start_step': 0,  # 0-based indexing
 }
+
+# Optimized DoRA mode settings (locked parameters)
+OPTIMIZED_DORA_SETTINGS = {
+    'steps': 34,
+    'cfg_scale': 4.2,
+    'rescale_cfg': 0.55,
+    'adapter_strength': 1.0,
+    'schedule': [0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1]
+}
+OPTIMIZED_DORA_SCHEDULE_CSV = ", ".join(str(x) for x in OPTIMIZED_DORA_SETTINGS['schedule'])
 
 # Optimal parameter ranges for generation info warnings
 OPTIMAL_STEPS_RANGE = (32, 40)

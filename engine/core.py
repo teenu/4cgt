@@ -267,12 +267,13 @@ class NoobAIEngine:
 
             generator = torch.Generator(device="cpu").manual_seed(seed)
 
-            manual_schedule, _ = parse_manual_dora_schedule(dora_manual_schedule, steps) if dora_toggle_mode == "manual" else (None, None)
+            manual_schedule, _ = parse_manual_dora_schedule(dora_manual_schedule, steps) if dora_toggle_mode in ["manual", "optimized"] else (None, None)
 
             if dora_toggle_mode and self.enable_dora and self._dora_manager.dora_loaded:
-                if self.dora_start_step > 1:
-                    logger.warning(f"Toggle mode '{dora_toggle_mode}' enabled with dora_start_step={self.dora_start_step}. Resetting start_step to 1.")
-                    self.dora_start_step = 1
+                if self.dora_start_step > 0:
+                    # When toggle mode is active, start step is ignored (0-based indexing)
+                    logger.warning(f"Toggle mode '{dora_toggle_mode}' enabled with dora_start_step={self.dora_start_step}. Resetting start_step to 0.")
+                    self.dora_start_step = 0
 
             self._progress_manager.setup_initial_dora_state(dora_toggle_mode, self.dora_start_step, manual_schedule, self.enable_dora)
 
@@ -333,13 +334,11 @@ class NoobAIEngine:
             dora_name = os.path.basename(self._dora_manager.dora_path) if self._dora_manager.dora_path else "DoRA"
             if self.enable_dora:
                 dora_info = f"🎯 DoRA: {dora_name} (strength: {self.adapter_strength}"
-                if dora_toggle_mode == "standard":
-                    dora_info += ", toggle: ON,OFF throughout"
-                elif dora_toggle_mode == "smart":
-                    dora_info += ", smart toggle: ON,OFF to step 20, then ON"
-                elif dora_toggle_mode == "manual":
+                if dora_toggle_mode == "manual":
                     dora_info += ", manual toggle schedule"
-                elif self.dora_start_step > 1:
+                elif dora_toggle_mode == "optimized":
+                    dora_info += ", optimized toggle schedule"
+                elif self.dora_start_step > 0:
                     dora_info += f", starts at step {self.dora_start_step}"
                 dora_info += ")"
                 info_parts.append(dora_info)
