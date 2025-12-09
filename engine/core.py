@@ -269,17 +269,17 @@ class NoobAIEngine:
 
             manual_schedule, _ = parse_manual_dora_schedule(dora_manual_schedule, steps) if dora_toggle_mode in ["manual", "optimized"] else (None, None)
 
+            effective_dora_start_step = self.dora_start_step
             if dora_toggle_mode and self.enable_dora and self._dora_manager.dora_loaded:
-                if self.dora_start_step > 0:
-                    # When toggle mode is active, start step is ignored (0-based indexing)
-                    logger.warning(f"Toggle mode '{dora_toggle_mode}' enabled with dora_start_step={self.dora_start_step}. Resetting start_step to 0.")
-                    self.dora_start_step = 0
+                if effective_dora_start_step > 0:
+                    logger.warning(f"Toggle mode '{dora_toggle_mode}' overrides dora_start_step={effective_dora_start_step}")
+                    effective_dora_start_step = 0
 
-            self._progress_manager.setup_initial_dora_state(dora_toggle_mode, self.dora_start_step, manual_schedule, self.enable_dora)
+            self._progress_manager.setup_initial_dora_state(dora_toggle_mode, effective_dora_start_step, manual_schedule, self.enable_dora)
 
             start_time = time.time()
             callback_on_step_end = self._progress_manager.create_callback(
-                steps, start_time, dora_toggle_mode, self.dora_start_step, manual_schedule, progress_callback, self.enable_dora
+                steps, start_time, dora_toggle_mode, effective_dora_start_step, manual_schedule, progress_callback, self.enable_dora
             )
 
             try:

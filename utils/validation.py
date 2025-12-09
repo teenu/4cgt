@@ -4,13 +4,11 @@ import os
 import json
 import struct
 import torch
-from functools import lru_cache
 from typing import Tuple, Optional, Sequence, Dict
 from config import logger, MODEL_CONFIG, DTYPE_MAP
 from utils.formatting import format_file_size
 
 
-@lru_cache(maxsize=1)
 def _get_allowed_directories() -> tuple:
     """Get list of allowed directories for model/adapter files."""
     allowed = [
@@ -19,7 +17,6 @@ def _get_allowed_directories() -> tuple:
         os.path.expanduser("~/Downloads"),
         os.path.expanduser("~/Documents"),
         os.path.expanduser("~/Models"),
-        "/tmp",
     ]
     return tuple(os.path.realpath(os.path.normpath(d)) for d in allowed if os.path.exists(d))
 
@@ -40,8 +37,6 @@ def _is_path_in_allowed_directory(path: str, allowed_dirs: Sequence[str]) -> Tup
             allowed_dir_real = os.path.realpath(os.path.normpath(allowed_dir))
 
             if real_path == allowed_dir_real:
-                if allowed_dir_real == os.path.realpath("/tmp"):
-                    return True, f"⚠️ File in temporary directory: {real_path}"
                 return True, None
             elif real_path.startswith(allowed_dir_real + os.sep):
                 try:
@@ -51,8 +46,6 @@ def _is_path_in_allowed_directory(path: str, allowed_dirs: Sequence[str]) -> Tup
                 except (ValueError, TypeError):
                     continue
 
-                if allowed_dir_real == os.path.realpath("/tmp"):
-                    return True, f"⚠️ File in temporary directory: {real_path}"
                 return True, None
 
         except (ValueError, TypeError, OSError):

@@ -9,7 +9,7 @@ from utils.formatting import format_file_size
 
 
 def detect_adapter_precision(adapter_path: str) -> str:
-    """Detect the precision of a DoRA adapter file using filename heuristic."""
+    """Detect adapter precision from filename heuristic (display only)."""
     filename_lower = os.path.basename(adapter_path).lower()
     if "_fp16" in filename_lower:
         return "fp16"
@@ -17,7 +17,7 @@ def detect_adapter_precision(adapter_path: str) -> str:
         return "bfloat16"
     elif "_fp32" in filename_lower:
         return "fp32"
-    return "fp16"
+    return "unknown"
 
 
 def discover_dora_adapters() -> List[Dict[str, Any]]:
