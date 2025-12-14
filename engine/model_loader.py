@@ -128,6 +128,6 @@ def load_pipeline(model_path: str, device: str) -> tuple:
     else:
         pipe = pipe.to(device)
 
-    pipe.enable_vae_slicing()
+    pipe.vae.enable_slicing()
 
     return pipe, cpu_offload_enabled
