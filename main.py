@@ -10,6 +10,7 @@ import os
 import sys
 import signal
 import threading
+import gradio as gr
 
 # ============================================================================
 # DETERMINISM SETUP - CRITICAL: Must be set before ANY PyTorch imports
@@ -33,6 +34,7 @@ from state import perf_monitor, resource_pool
 from ui.engine_manager import get_engine_safely
 from prompt_formatter import get_prompt_data
 from ui import create_interface
+from ui.styles import CSS_STYLES, JAVASCRIPT_HEAD
 from cli import cli_list_adapters, cli_generate, parse_args
 
 # ============================================================================
@@ -150,7 +152,10 @@ def main():
             inbrowser=not args.no_browser,
             show_error=True,
             server_name=args.host,
-            server_port=args.port
+            server_port=args.port,
+            theme=gr.themes.Soft(),
+            css=CSS_STYLES,
+            head=JAVASCRIPT_HEAD
         )
 
         return 0

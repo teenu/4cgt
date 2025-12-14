@@ -20,7 +20,6 @@ from ui.generation import (
     start_generation, generate_image_with_progress,
     finish_generation, interrupt_generation
 )
-from ui.styles import CSS_STYLES, JAVASCRIPT_HEAD
 from utils import parse_manual_dora_schedule
 
 
@@ -52,10 +51,7 @@ def create_interface(model_path: str = None) -> gr.Blocks:
     ]
 
     with gr.Blocks(
-        title="NoobAI XL V-Pred 1.0 (Hash Consistency Edition)",
-        theme=gr.themes.Soft(),
-        css=CSS_STYLES,
-        head=JAVASCRIPT_HEAD
+        title="NoobAI XL V-Pred 1.0 (Hash Consistency Edition)"
     ) as demo:
 
         gr.HTML('<div class="title-text">🎯 NoobAI XL V-Pred 1.0 - Hash Consistency Edition</div>')
