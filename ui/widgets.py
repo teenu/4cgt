@@ -131,8 +131,15 @@ def connect_search_events(
     clear_btn: gr.Button,
     randomize_btn: Optional[gr.Button] = None,
     source_filter: Optional[gr.Radio] = None,
+    compose_fn=None,
+    compose_inputs: Optional[list] = None,
+    final_prompt_output: Optional[gr.Textbox] = None,
 ):
-    """Connect event handlers for a search segment."""
+    """Connect event handlers for a search segment.
+
+    If compose_fn, compose_inputs, and final_prompt_output are provided,
+    the randomize and dropdown selection will auto-compose the final prompt.
+    """
     # Search with source filter support
     if source_filter is not None:
         search_box.change(
@@ -157,12 +164,20 @@ def connect_search_events(
             show_progress=False,
         )
 
-    dropdown.change(
+    dropdown_event = dropdown.change(
         lambda q, c: select_from_dropdown(q, c, data_type),
         inputs=[search_box, dropdown],
         outputs=[text_output],
         show_progress=False,
     )
+    # Auto-compose after dropdown selection if compose parameters are provided
+    if compose_fn and compose_inputs is not None and final_prompt_output is not None:
+        dropdown_event.then(
+            compose_fn,
+            inputs=compose_inputs,
+            outputs=[final_prompt_output],
+            show_progress=False,
+        )
 
     clear_btn.click(
         create_clear_handler(data_type),
@@ -172,9 +187,17 @@ def connect_search_events(
 
     # Randomize button handler
     if randomize_btn is not None and source_filter is not None:
-        randomize_btn.click(
+        randomize_event = randomize_btn.click(
             lambda sf: get_random_value(data_type, sf if sf != 'all' else None),
             inputs=[source_filter],
             outputs=[text_output],
             show_progress=False,
         )
+        # Auto-compose after randomize if compose parameters are provided
+        if compose_fn and compose_inputs is not None and final_prompt_output is not None:
+            randomize_event.then(
+                compose_fn,
+                inputs=compose_inputs,
+                outputs=[final_prompt_output],
+                show_progress=False,
+            )

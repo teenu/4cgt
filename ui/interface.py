@@ -452,9 +452,11 @@ def create_interface(model_path: str = None) -> gr.Blocks:
 
         clear_all_btn.click(clear_all_prompts, outputs=[prefix_text, character_text, artist_text, custom_text, final_prompt])
 
-        # Connect search events
-        connect_search_events('character', character_search, character_dropdown, character_text, character_clear_btn, character_randomize_btn, character_source_filter)
-        connect_search_events('artist', artist_search, artist_dropdown, artist_text, artist_clear_btn, artist_randomize_btn, artist_source_filter)
+        # Connect search events with auto-compose
+        connect_search_events('character', character_search, character_dropdown, character_text, character_clear_btn, character_randomize_btn, character_source_filter,
+                              compose_fn=compose_final_prompt, compose_inputs=all_prompt_inputs, final_prompt_output=final_prompt)
+        connect_search_events('artist', artist_search, artist_dropdown, artist_text, artist_clear_btn, artist_randomize_btn, artist_source_filter,
+                              compose_fn=compose_final_prompt, compose_inputs=all_prompt_inputs, final_prompt_output=final_prompt)
 
         # Randomize All button handler
         def randomize_all(char_filter, artist_filter):
@@ -467,6 +469,10 @@ def create_interface(model_path: str = None) -> gr.Blocks:
             randomize_all,
             inputs=[character_source_filter, artist_source_filter],
             outputs=[character_text, artist_text]
+        ).then(
+            compose_final_prompt,
+            inputs=all_prompt_inputs,
+            outputs=[final_prompt]
         )
 
         # Generation
