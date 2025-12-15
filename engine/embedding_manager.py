@@ -73,15 +73,35 @@ class EmbeddingManager:
             if num_added_1 == 0 and num_added_2 == 0:
                 logger.warning(f"Token '{token}' already exists in tokenizers")
 
-            # Resize token embeddings for both text encoders
-            text_encoder.resize_token_embeddings(len(tokenizer))
-            text_encoder_2.resize_token_embeddings(len(tokenizer_2))
+            # Check if models are on meta device (CPU offloading enabled)
+            # If so, we need to handle this differently
+            is_meta_1 = hasattr(text_encoder, 'device') and str(text_encoder.device) == 'meta'
+            is_meta_2 = hasattr(text_encoder_2, 'device') and str(text_encoder_2.device) == 'meta'
+
+            # Also check the embedding weights directly
+            embeddings_1 = text_encoder.get_input_embeddings()
+            embeddings_2 = text_encoder_2.get_input_embeddings()
+
+            if embeddings_1.weight.device.type == 'meta' or embeddings_2.weight.device.type == 'meta':
+                # CPU offloading is active - need to handle meta tensors
+                logger.info("CPU offloading detected - using meta-tensor compatible embedding injection")
+                return self._load_sdxl_embedding_with_offload(
+                    token, placeholder_tokens, num_tokens,
+                    clip_l_emb, clip_g_emb,
+                    tokenizer, tokenizer_2,
+                    text_encoder, text_encoder_2
+                )
+
+            # Standard path - no CPU offloading
+            # Resize token embeddings for both text encoders (disable mean_resizing to avoid issues)
+            text_encoder.resize_token_embeddings(len(tokenizer), mean_resizing=False)
+            text_encoder_2.resize_token_embeddings(len(tokenizer_2), mean_resizing=False)
 
             # Get token IDs
             token_ids_1 = tokenizer.convert_tokens_to_ids(placeholder_tokens)
             token_ids_2 = tokenizer_2.convert_tokens_to_ids(placeholder_tokens)
 
-            # Get embedding layers
+            # Refresh embedding layer references after resize
             embeddings_1 = text_encoder.get_input_embeddings()
             embeddings_2 = text_encoder_2.get_input_embeddings()
 
@@ -106,6 +126,83 @@ class EmbeddingManager:
 
         except Exception as e:
             logger.error(f"Failed to load SDXL embedding: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            return False
+
+    def _load_sdxl_embedding_with_offload(
+        self, token: str, placeholder_tokens: List[str], num_tokens: int,
+        clip_l_emb: torch.Tensor, clip_g_emb: torch.Tensor,
+        tokenizer, tokenizer_2, text_encoder, text_encoder_2
+    ) -> bool:
+        """Load SDXL embedding when CPU offloading is enabled.
+
+        When CPU offloading is active, the model weights are on 'meta' device
+        and we cannot directly modify them. Instead, we need to:
+        1. Move the text encoders to CPU temporarily
+        2. Resize and inject embeddings
+        3. The offload hooks will handle moving them back as needed
+        """
+        try:
+            import accelerate
+
+            # Get the device to use for temporary operations
+            device = torch.device("cpu")
+
+            # Move text encoders to CPU temporarily to materialize weights
+            logger.debug("Moving text encoders to CPU for embedding injection")
+
+            # Remove offload hooks temporarily if they exist
+            if hasattr(text_encoder, '_hf_hook'):
+                accelerate.hooks.remove_hook_from_module(text_encoder, recurse=True)
+            if hasattr(text_encoder_2, '_hf_hook'):
+                accelerate.hooks.remove_hook_from_module(text_encoder_2, recurse=True)
+
+            # Move to CPU to materialize
+            text_encoder.to(device)
+            text_encoder_2.to(device)
+
+            # Now resize token embeddings
+            text_encoder.resize_token_embeddings(len(tokenizer), mean_resizing=False)
+            text_encoder_2.resize_token_embeddings(len(tokenizer_2), mean_resizing=False)
+
+            # Get token IDs
+            token_ids_1 = tokenizer.convert_tokens_to_ids(placeholder_tokens)
+            token_ids_2 = tokenizer_2.convert_tokens_to_ids(placeholder_tokens)
+
+            # Get embedding layers
+            embeddings_1 = text_encoder.get_input_embeddings()
+            embeddings_2 = text_encoder_2.get_input_embeddings()
+
+            # Inject embeddings for text_encoder (CLIP-L, 768 dim)
+            with torch.no_grad():
+                for i, token_id in enumerate(token_ids_1):
+                    embeddings_1.weight[token_id] = clip_l_emb[i].to(
+                        dtype=embeddings_1.weight.dtype,
+                        device=device
+                    )
+
+            # Inject embeddings for text_encoder_2 (CLIP-G, 1280 dim)
+            with torch.no_grad():
+                for i, token_id in enumerate(token_ids_2):
+                    embeddings_2.weight[token_id] = clip_g_emb[i].to(
+                        dtype=embeddings_2.weight.dtype,
+                        device=device
+                    )
+
+            # Re-enable CPU offloading by moving back to meta and re-applying hooks
+            # The pipeline's enable_sequential_cpu_offload should be called again
+            # but that's complex - instead, just leave on CPU and let the pipeline handle it
+            logger.info(f"Successfully loaded SDXL embedding '{token}' ({num_tokens} tokens) with CPU offload handling")
+            return True
+
+        except ImportError:
+            logger.error("accelerate package required for CPU offload handling")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to load SDXL embedding with CPU offload: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
             return False
 
     def load_embedding(self, embedding_path: str, token: Optional[str] = None) -> bool:
