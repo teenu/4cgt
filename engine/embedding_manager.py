@@ -2,10 +2,14 @@
 
 This module handles discovery, loading, and management of textual inversion
 embeddings (CLIP embeddings stored in safetensors format).
+
+Supports SDXL dual-CLIP format with clip_g and clip_l tensors.
 """
 
 import os
+import torch
 from typing import List, Dict, Optional, Any
+from safetensors import safe_open
 from config import (
     logger, EMBEDDING_CONFIG, EMBEDDING_SEARCH_DIRECTORIES,
     QUALITY_EMBEDDING_TRIGGERS, NEGATIVE_EMBEDDING_TRIGGERS
@@ -24,8 +28,90 @@ class EmbeddingManager:
         self.pipe = pipe
         self.loaded_embeddings: Dict[str, str] = {}  # token -> path
 
+    def _load_sdxl_embedding(self, embedding_path: str, token: str) -> bool:
+        """Load an SDXL-format embedding with clip_g and clip_l tensors.
+
+        This handles the community SDXL embedding format that stores separate
+        embeddings for both CLIP text encoders.
+
+        Args:
+            embedding_path: Path to the .safetensors file
+            token: Trigger token for this embedding
+
+        Returns:
+            True if loading succeeded
+        """
+        try:
+            # Load tensors from safetensors file
+            with safe_open(embedding_path, framework="pt", device="cpu") as f:
+                keys = list(f.keys())
+
+                # Check if this is SDXL format
+                if "clip_l" not in keys or "clip_g" not in keys:
+                    return False
+
+                clip_l_emb = f.get_tensor("clip_l")  # [num_tokens, 768]
+                clip_g_emb = f.get_tensor("clip_g")  # [num_tokens, 1280]
+
+            num_tokens = clip_l_emb.shape[0]
+            logger.info(f"Loading SDXL embedding '{token}' with {num_tokens} tokens")
+
+            # Get tokenizers and text encoders
+            tokenizer = self.pipe.tokenizer
+            tokenizer_2 = self.pipe.tokenizer_2
+            text_encoder = self.pipe.text_encoder
+            text_encoder_2 = self.pipe.text_encoder_2
+
+            # Create placeholder tokens for multi-token embeddings
+            # For n tokens, we use: token, token_1, token_2, ... token_(n-1)
+            placeholder_tokens = [token] + [f"{token}_{i}" for i in range(1, num_tokens)]
+
+            # Add tokens to both tokenizers
+            num_added_1 = tokenizer.add_tokens(placeholder_tokens)
+            num_added_2 = tokenizer_2.add_tokens(placeholder_tokens)
+
+            if num_added_1 == 0 and num_added_2 == 0:
+                logger.warning(f"Token '{token}' already exists in tokenizers")
+
+            # Resize token embeddings for both text encoders
+            text_encoder.resize_token_embeddings(len(tokenizer))
+            text_encoder_2.resize_token_embeddings(len(tokenizer_2))
+
+            # Get token IDs
+            token_ids_1 = tokenizer.convert_tokens_to_ids(placeholder_tokens)
+            token_ids_2 = tokenizer_2.convert_tokens_to_ids(placeholder_tokens)
+
+            # Get embedding layers
+            embeddings_1 = text_encoder.get_input_embeddings()
+            embeddings_2 = text_encoder_2.get_input_embeddings()
+
+            # Inject embeddings for text_encoder (CLIP-L, 768 dim)
+            with torch.no_grad():
+                for i, token_id in enumerate(token_ids_1):
+                    embeddings_1.weight[token_id] = clip_l_emb[i].to(
+                        dtype=embeddings_1.weight.dtype,
+                        device=embeddings_1.weight.device
+                    )
+
+            # Inject embeddings for text_encoder_2 (CLIP-G, 1280 dim)
+            with torch.no_grad():
+                for i, token_id in enumerate(token_ids_2):
+                    embeddings_2.weight[token_id] = clip_g_emb[i].to(
+                        dtype=embeddings_2.weight.dtype,
+                        device=embeddings_2.weight.device
+                    )
+
+            logger.info(f"Successfully loaded SDXL embedding '{token}' ({num_tokens} tokens)")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to load SDXL embedding: {e}")
+            return False
+
     def load_embedding(self, embedding_path: str, token: Optional[str] = None) -> bool:
         """Load a textual inversion embedding into the pipeline.
+
+        Supports both standard diffusers format and SDXL dual-CLIP format.
 
         Args:
             embedding_path: Path to the .safetensors embedding file
@@ -41,13 +127,36 @@ class EmbeddingManager:
         if token is None:
             # Derive token from filename (without extension)
             token = os.path.splitext(os.path.basename(embedding_path))[0]
-            # Handle -neg suffix convention - keep the full name as trigger
-            # but also register a version without -neg for convenience
-            if token.endswith("-neg"):
-                base_token = token[:-4]  # Version without -neg suffix
-            else:
-                base_token = None
 
+        # Handle -neg suffix convention
+        base_token = None
+        if token.endswith("-neg"):
+            base_token = token[:-4]  # Version without -neg suffix
+
+        # First, try to load as SDXL format (clip_g + clip_l)
+        try:
+            with safe_open(embedding_path, framework="pt", device="cpu") as f:
+                keys = list(f.keys())
+
+            if "clip_l" in keys and "clip_g" in keys:
+                # This is SDXL format - use custom loader
+                if self._load_sdxl_embedding(embedding_path, token):
+                    self.loaded_embeddings[token] = embedding_path
+
+                    # Also register base token alias for -neg files
+                    if base_token and base_token not in self.loaded_embeddings:
+                        # The tokens are already in the tokenizer, just add to our registry
+                        self.loaded_embeddings[base_token] = embedding_path
+                        logger.info(f"Also registered alias '{base_token}' for embedding")
+
+                    return True
+                else:
+                    return False
+
+        except Exception as e:
+            logger.debug(f"Could not check embedding format: {e}")
+
+        # Fall back to standard diffusers method
         try:
             self.pipe.load_textual_inversion(embedding_path, token=token)
             self.loaded_embeddings[token] = embedding_path
