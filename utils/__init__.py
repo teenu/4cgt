@@ -10,7 +10,8 @@ from utils.dora import (
     discover_dora_adapters,
     find_dora_path,
     get_dora_adapter_by_name,
-    detect_adapter_precision
+    detect_adapter_precision,
+    clear_adapters_cache
 )
 from utils.formatting import (
     normalize_text,
@@ -35,6 +36,7 @@ __all__ = [
     'find_dora_path',
     'get_dora_adapter_by_name',
     'detect_adapter_precision',
+    'clear_adapters_cache',
     'normalize_text',
     'format_file_size',
     'calculate_image_hash',

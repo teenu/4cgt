@@ -2,10 +2,16 @@
 
 import os
 import glob
+import time
 from typing import List, Dict, Any, Optional
 from config import logger, DORA_SEARCH_DIRECTORIES
 from utils.validation import validate_dora_path
 from utils.formatting import format_file_size
+
+# Cache for discover_dora_adapters to avoid redundant filesystem scans
+_adapters_cache: List[Dict[str, Any]] = []
+_adapters_cache_time: float = 0.0
+_CACHE_TTL_SECONDS: float = 5.0
 
 
 def detect_adapter_precision(adapter_path: str) -> str:
@@ -20,8 +26,20 @@ def detect_adapter_precision(adapter_path: str) -> str:
     return "unknown"
 
 
-def discover_dora_adapters() -> List[Dict[str, Any]]:
-    """Discover all DoRA adapter files in search directories."""
+def discover_dora_adapters(force_refresh: bool = False) -> List[Dict[str, Any]]:
+    """Discover all DoRA adapter files in search directories.
+
+    Results are cached for 5 seconds to avoid redundant filesystem scans.
+
+    Args:
+        force_refresh: If True, bypass the cache and rescan directories.
+    """
+    global _adapters_cache, _adapters_cache_time
+
+    current_time = time.time()
+    if not force_refresh and _adapters_cache and (current_time - _adapters_cache_time) < _CACHE_TTL_SECONDS:
+        return _adapters_cache.copy()
+
     adapters = []
     seen_names = set()
 
@@ -63,6 +81,11 @@ def discover_dora_adapters() -> List[Dict[str, Any]]:
             logger.warning(f"Unexpected error scanning directory {search_dir}: {e}")
 
     adapters.sort(key=lambda x: x['name'])
+
+    # Update cache
+    _adapters_cache = adapters.copy()
+    _adapters_cache_time = time.time()
+
     return adapters
 
 
@@ -81,3 +104,10 @@ def get_dora_adapter_by_name(adapter_name: str) -> Optional[Dict[str, Any]]:
         if adapter['name'] == adapter_name:
             return adapter
     return None
+
+
+def clear_adapters_cache() -> None:
+    """Clear the adapters cache to force a fresh scan on next discovery."""
+    global _adapters_cache, _adapters_cache_time
+    _adapters_cache = []
+    _adapters_cache_time = 0.0

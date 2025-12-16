@@ -2,7 +2,6 @@
 
 import gc
 import torch
-from typing import Optional
 from config import logger
 
 
@@ -34,8 +33,8 @@ def clear_memory(device: str) -> None:
         elif device == "cuda":
             torch.cuda.empty_cache()
         gc.collect()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Error during memory cleanup: {e}")
 
 
 def teardown_pipeline(pipe, device: str, cpu_offload_enabled: bool, dora_loaded: bool) -> None:

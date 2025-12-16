@@ -71,11 +71,15 @@ def get_dora_ui_state() -> dict:
     adapters = discover_dora_adapters()
     has_adapters = len(adapters) > 0
 
+    # Use the cached adapters list directly instead of calling discover_dora_adapters again
+    adapter_choices = [adapter['name'] for adapter in adapters] if adapters else ["None"]
+    default_selection = adapters[0]['name'] if adapters else "None"
+
     return {
         'enable_dora_interactive': has_adapters,
         'enable_dora_value': has_adapters,
-        'dropdown_choices': get_adapter_choices(),
-        'dropdown_value': get_default_adapter_selection(),
+        'dropdown_choices': adapter_choices,
+        'dropdown_value': default_selection,
         'dropdown_interactive': has_adapters,
         'info_message': "Select DoRA adapter from /dora directory" if has_adapters else "No adapters found in /dora directory",
         'checkbox_info': "Load DoRA adapter for enhanced generation" if has_adapters else "No adapters available - install adapters in /dora directory"

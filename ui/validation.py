@@ -34,10 +34,20 @@ def _coerce_float(value: Union[int, float, str, Any], label: str) -> float:
 
 
 def parse_resolution_string(res_str: str) -> Tuple[int, int]:
-    """Parse resolution string to width and height."""
+    """Parse resolution string to width and height.
+
+    Expects format like "1216x832" or "1216x832 (Optimal)".
+    """
     try:
-        w, h = map(int, re.findall(r'\d+', res_str)[:2])
-        return w, h
+        # Try explicit WIDTHxHEIGHT pattern first
+        match = re.search(r'(\d+)\s*x\s*(\d+)', res_str, re.IGNORECASE)
+        if match:
+            return int(match.group(1)), int(match.group(2))
+        # Fallback to extracting first two numbers
+        numbers = re.findall(r'\d+', res_str)
+        if len(numbers) >= 2:
+            return int(numbers[0]), int(numbers[1])
+        return OPTIMAL_SETTINGS['width'], OPTIMAL_SETTINGS['height']
     except (ValueError, TypeError, IndexError):
         return OPTIMAL_SETTINGS['width'], OPTIMAL_SETTINGS['height']
 

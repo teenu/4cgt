@@ -8,10 +8,18 @@ searching character and artist data from CSV files.
 import csv
 import random
 import threading
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from config import logger, PANDAS_AVAILABLE, SEARCH_CONFIG, SearchScoring
 from state import perf_monitor
 from utils import CSV_PATHS
+
+
+def _is_valid_core_tags(value: Any) -> bool:
+    """Check if core_tags value is valid (not None, empty, or NaN)."""
+    if not value:
+        return False
+    str_value = str(value).lower()
+    return str_value != 'nan' and str_value.strip() != ''
 
 # Check pandas availability
 if PANDAS_AVAILABLE:
@@ -206,9 +214,8 @@ class IndexedPromptFormatterData:
                         }
 
                         # Add value based on type and source
-                        # Filter out NaN values from CSV
                         core_tags = item.get('core_tags', '')
-                        if data_type == 'character' and source == 'danbooru' and core_tags and str(core_tags).lower() != 'nan':
+                        if data_type == 'character' and source == 'danbooru' and _is_valid_core_tags(core_tags):
                             result['value'] = f"{core_tags}, {item['trigger']}"
                         else:
                             result['value'] = item['trigger']
@@ -235,9 +242,8 @@ class IndexedPromptFormatterData:
                                 'score': score
                             }
 
-                            # Filter out NaN values from CSV
                             core_tags = item.get('core_tags', '')
-                            if data_type == 'character' and source == 'danbooru' and core_tags and str(core_tags).lower() != 'nan':
+                            if data_type == 'character' and source == 'danbooru' and _is_valid_core_tags(core_tags):
                                 result['value'] = f"{core_tags}, {item['trigger']}"
                             else:
                                 result['value'] = item['trigger']
@@ -316,12 +322,8 @@ class IndexedPromptFormatterData:
 
         # Format the value (same logic as search results)
         core_tags = item.get('core_tags', '')
-        # Filter out NaN values from CSV
-        if core_tags and str(core_tags).lower() != 'nan':
-            if data_type == 'character' and source == 'danbooru':
-                value = f"{core_tags}, {item['trigger']}"
-            else:
-                value = item['trigger']
+        if data_type == 'character' and source == 'danbooru' and _is_valid_core_tags(core_tags):
+            value = f"{core_tags}, {item['trigger']}"
         else:
             value = item['trigger']
 

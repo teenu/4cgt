@@ -70,7 +70,9 @@ def generate_image_with_progress(
         used_seed = None
         if not auto_randomize_seed:
             try:
-                seed_val = int(seed.strip())
+                # Ensure seed is string before calling strip()
+                seed_str = str(seed) if not isinstance(seed, str) else seed
+                seed_val = int(seed_str.strip())
                 if not (0 <= seed_val < 2**32):
                     raise InvalidParameterError(f"Seed must be between 0 and {2**32-1}")
                 used_seed = seed_val

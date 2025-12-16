@@ -1,7 +1,6 @@
 """CLI functions for NoobAI XL V-Pred 1.0."""
 
 import os
-import sys
 import argparse
 from config import logger, OPTIMAL_SETTINGS, MODEL_CONFIG, DEFAULT_NEGATIVE_PROMPT, DORA_SEARCH_DIRECTORIES, OPTIMIZED_DORA_SETTINGS, OPTIMIZED_DORA_SCHEDULE_CSV
 from utils import (
