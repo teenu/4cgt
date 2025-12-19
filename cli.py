@@ -95,12 +95,16 @@ def cli_generate(args):
                     print("⚠️ DoRA enabled but no valid DoRA file found")
                     print("Use --list-dora-adapters to see available adapters")
 
+        if args.force_fp32:
+            print("🔒 Parity mode: FP32 inference enabled for reproducibility")
+
         engine = NoobAIEngine(
             model_path=path_or_error,
             enable_dora=args.enable_dora,
             dora_path=dora_path_to_use,
             adapter_strength=args.adapter_strength,
-            dora_start_step=args.dora_start_step
+            dora_start_step=args.dora_start_step,
+            force_fp32=args.force_fp32
         )
 
         width = args.width or OPTIMAL_SETTINGS['width']
@@ -217,10 +221,16 @@ def parse_args():
     %(prog)s                           # Launch GUI locally (default)
     %(prog)s --lan                     # Launch GUI on LAN (0.0.0.0:7860)
     %(prog)s --lan --port 8080         # Custom port
+    %(prog)s --force-fp32              # Launch GUI with FP32 parity mode
 
   CLI Mode:
     %(prog)s --cli --prompt "cat girl, anime"
     %(prog)s --cli --prompt "dragon" --steps 40 --width 1024 --height 768
+
+  Parity Mode (FP32):
+    %(prog)s --force-fp32              # GUI with FP32 parity mode
+    %(prog)s --lan --force-fp32        # LAN mode with FP32 parity
+    %(prog)s --cli --prompt "test" --force-fp32  # CLI with FP32 parity
 
   DoRA Adapters:
     %(prog)s --list-dora-adapters                        # List available adapters
@@ -264,6 +274,12 @@ def parse_args():
     cli_group.add_argument("--dora-manual-schedule", type=str,
                           help="Manual DoRA schedule CSV (e.g., '1,0,0,1')")
     cli_group.add_argument("--verbose", action="store_true", help="Show detailed generation info")
+
+    precision_group = parser.add_argument_group("Precision Options")
+    precision_group.add_argument("--force-fp32", action="store_true",
+                          help="Force FP32 inference for parity with FP32 directory models (uses more VRAM)")
+    precision_group.add_argument("--parity-mode", action="store_true", dest="force_fp32",
+                          help="Alias for --force-fp32 (parity testing mode)")
 
     gui_group = parser.add_argument_group("GUI Options")
     gui_group.add_argument("--host", type=str, default="127.0.0.1", help="GUI server host")

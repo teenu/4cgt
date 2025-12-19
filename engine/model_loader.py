@@ -33,8 +33,13 @@ def check_bf16_support(device: str) -> bool:
     return False
 
 
-def load_pipeline(model_path: str, device: str) -> tuple:
+def load_pipeline(model_path: str, device: str, force_fp32: bool = False) -> tuple:
     """Load diffusion pipeline with proper precision handling.
+
+    Args:
+        model_path: Path to model file or directory
+        device: Target device (cuda/mps/cpu)
+        force_fp32: If True, force FP32 inference even for BF16 models (parity mode)
 
     Returns:
         tuple: (pipeline, cpu_offload_enabled)
@@ -47,9 +52,6 @@ def load_pipeline(model_path: str, device: str) -> tuple:
             f"Model precision validation failed: got {base_precision}. "
             f"Only BF16 model or FP32 pre-converted models are supported."
         )
-
-    bf16_supported = check_bf16_support(device)
-    inference_dtype = torch.bfloat16 if bf16_supported else torch.float32
 
     if base_precision == torch.float32 and is_directory:
         vae_path = os.path.join(model_path, "vae")
@@ -86,25 +88,38 @@ def load_pipeline(model_path: str, device: str) -> tuple:
 
         logger.info("FP32 directory model loaded with all components validated as FP32")
     else:
+        # Single file loading (safetensors)
+        if force_fp32:
+            # Parity mode: Load all components in FP32 for bitwise-identical outputs
+            load_dtype = torch.float32
+            logger.info("Parity mode: Loading BF16 model with FP32 precision")
+        else:
+            bf16_supported = check_bf16_support(device)
+            load_dtype = torch.bfloat16 if bf16_supported else torch.float32
+
         pipe = StableDiffusionXLPipeline.from_single_file(
             model_path,
-            torch_dtype=inference_dtype,
+            torch_dtype=load_dtype,
             use_safetensors=True,
         )
 
-        try:
-            pipe.vae.to(dtype=torch.float32)
-            logger.info("Single file model loaded; VAE upcast to FP32 for lossless decode")
-        except Exception as vae_error:
+        if not force_fp32:
+            # Only need explicit VAE upcast in non-parity mode (BF16 inference)
             try:
-                del pipe
-            except Exception:
-                pass
-            if device == "cuda":
-                torch.cuda.empty_cache()
-            elif device == "mps" and hasattr(torch, 'mps'):
-                torch.mps.empty_cache()
-            raise ValueError(f"Failed to upcast VAE to FP32: {vae_error}")
+                pipe.vae.to(dtype=torch.float32)
+                logger.info("Single file model loaded; VAE upcast to FP32 for lossless decode")
+            except Exception as vae_error:
+                try:
+                    del pipe
+                except Exception:
+                    pass
+                if device == "cuda":
+                    torch.cuda.empty_cache()
+                elif device == "mps" and hasattr(torch, 'mps'):
+                    torch.mps.empty_cache()
+                raise ValueError(f"Failed to upcast VAE to FP32: {vae_error}")
+        else:
+            logger.info("Parity mode: All components loaded as FP32 (VAE already FP32)")
 
     pipe.scheduler = EulerDiscreteScheduler.from_config(
         pipe.scheduler.config,

@@ -131,6 +131,9 @@ def main():
         logger.info("Starting NoobAI XL V-Pred 1.0")
         logger.info(f"Output directory: {OUTPUT_DIR}")
 
+        if args.force_fp32:
+            logger.info("FP32 parity mode enabled (--force-fp32)")
+
         if args.host == "0.0.0.0":
             logger.info(f"LAN mode enabled on port {args.port}")
         else:
@@ -139,8 +142,11 @@ def main():
         # Pre-load CSV data
         get_prompt_data()
 
-        # Create and launch interface (pass model_path if specified)
-        demo = create_interface(model_path=args.model_path if hasattr(args, 'model_path') else None)
+        # Create and launch interface (pass model_path and force_fp32 if specified)
+        demo = create_interface(
+            model_path=args.model_path if hasattr(args, 'model_path') else None,
+            force_fp32=args.force_fp32 if hasattr(args, 'force_fp32') else False
+        )
 
         # Enable queue for progress tracking (required by Gradio 3.50.x)
         demo.queue()

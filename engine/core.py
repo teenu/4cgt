@@ -42,11 +42,13 @@ class NoobAIEngine:
 
     def __init__(self, model_path: str, enable_dora: bool = False, dora_path: Optional[str] = None,
                  adapter_strength: float = MODEL_CONFIG.DEFAULT_ADAPTER_STRENGTH,
-                 dora_start_step: int = MODEL_CONFIG.DEFAULT_DORA_START_STEP):
+                 dora_start_step: int = MODEL_CONFIG.DEFAULT_DORA_START_STEP,
+                 force_fp32: bool = False):
         self.model_path = model_path
         self.enable_dora = enable_dora
         self.adapter_strength = adapter_strength
         self.dora_start_step = dora_start_step
+        self.force_fp32 = force_fp32
         self.pipe = None
         self.is_initialized = False
         self._device = None
@@ -64,7 +66,7 @@ class NoobAIEngine:
                 self._device = detect_device()
                 logger.info(f"Using device: {self._device.upper()}")
 
-                self.pipe, self._cpu_offload_enabled = load_pipeline(self.model_path, self._device)
+                self.pipe, self._cpu_offload_enabled = load_pipeline(self.model_path, self._device, self.force_fp32)
                 self.is_initialized = True
                 logger.info("Engine initialized")
 

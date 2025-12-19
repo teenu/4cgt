@@ -86,7 +86,7 @@ def get_dora_ui_state() -> dict:
     }
 
 
-def auto_initialize(preferred_model_path: str = None) -> Tuple[str, str, bool, str, str]:
+def auto_initialize(preferred_model_path: str = None, force_fp32: bool = False) -> Tuple[str, str, bool, str, str]:
     """Auto-initialize with DoRA defaults."""
     model_path = preferred_model_path if preferred_model_path else find_model_path()
 
@@ -95,7 +95,7 @@ def auto_initialize(preferred_model_path: str = None) -> Tuple[str, str, bool, s
     default_adapter = dora_ui_state['dropdown_value']
 
     if model_path:
-        status = initialize_engine(model_path, enable_dora=enable_dora, dora_selection=default_adapter)
+        status = initialize_engine(model_path, enable_dora=enable_dora, dora_selection=default_adapter, force_fp32=force_fp32)
         return status, model_path, enable_dora, "", default_adapter
 
     return ("⚠️ No model found. Please specify path manually.",
@@ -103,8 +103,16 @@ def auto_initialize(preferred_model_path: str = None) -> Tuple[str, str, bool, s
             enable_dora, "", default_adapter)
 
 
-def initialize_engine(model_path: str, enable_dora: bool = False, dora_path: str = "", dora_selection: str = "") -> str:
-    """Initialize the engine."""
+def initialize_engine(model_path: str, enable_dora: bool = False, dora_path: str = "", dora_selection: str = "", force_fp32: bool = False) -> str:
+    """Initialize the engine.
+
+    Args:
+        model_path: Path to model file or directory
+        enable_dora: Whether to enable DoRA adapter
+        dora_path: Path to DoRA adapter file
+        dora_selection: Name of DoRA adapter to use
+        force_fp32: Force FP32 inference for parity mode
+    """
     global engine
 
     with _engine_lock:
@@ -167,7 +175,8 @@ def initialize_engine(model_path: str, enable_dora: bool = False, dora_path: str
                 model_path=validated_model_path,
                 enable_dora=enable_dora,
                 dora_path=dora_path_to_use,
-                dora_start_step=OPTIMAL_SETTINGS['dora_start_step']
+                dora_start_step=OPTIMAL_SETTINGS['dora_start_step'],
+                force_fp32=force_fp32
             )
 
             if os.path.isdir(validated_model_path):
@@ -179,7 +188,8 @@ def initialize_engine(model_path: str, enable_dora: bool = False, dora_path: str
             else:
                 model_size = os.path.getsize(validated_model_path)
 
-            status_msg = f"✅ Engine initialized!\n📊 Model: {format_file_size(model_size)}{dora_status}"
+            precision_info = " [FP32 Parity Mode]" if force_fp32 else ""
+            status_msg = f"✅ Engine initialized!{precision_info}\n📊 Model: {format_file_size(model_size)}{dora_status}"
 
             return status_msg
 
