@@ -89,37 +89,65 @@ def load_pipeline(model_path: str, device: str, force_fp32: bool = False) -> tup
         logger.info("FP32 directory model loaded with all components validated as FP32")
     else:
         # Single file loading (safetensors)
-        if force_fp32:
-            # Parity mode: Load all components in FP32 for bitwise-identical outputs
-            load_dtype = torch.float32
-            logger.info("Parity mode: Loading BF16 model with FP32 precision")
-        else:
-            bf16_supported = check_bf16_support(device)
-            load_dtype = torch.bfloat16 if bf16_supported else torch.float32
+        bf16_supported = check_bf16_support(device)
 
-        pipe = StableDiffusionXLPipeline.from_single_file(
-            model_path,
-            torch_dtype=load_dtype,
-            use_safetensors=True,
-        )
-
-        if not force_fp32:
-            # Only need explicit VAE upcast in non-parity mode (BF16 inference)
-            try:
-                pipe.vae.to(dtype=torch.float32)
-                logger.info("Single file model loaded; VAE upcast to FP32 for lossless decode")
-            except Exception as vae_error:
-                try:
-                    del pipe
-                except Exception:
-                    pass
-                if device == "cuda":
-                    torch.cuda.empty_cache()
-                elif device == "mps" and hasattr(torch, 'mps'):
-                    torch.mps.empty_cache()
-                raise ValueError(f"Failed to upcast VAE to FP32: {vae_error}")
+        if force_fp32 or not bf16_supported:
+            # Parity mode or unsupported device: Load all components in FP32
+            pipe = StableDiffusionXLPipeline.from_single_file(
+                model_path,
+                torch_dtype=torch.float32,
+                use_safetensors=True,
+            )
+            if force_fp32:
+                logger.info("Parity mode: All components loaded as FP32")
+            else:
+                logger.info("Device does not support BF16; all components loaded as FP32")
         else:
-            logger.info("Parity mode: All components loaded as FP32 (VAE already FP32)")
+            # BF16 mode with native VAE precision: Two-pass loading
+            # First pass: Load at FP32 to extract VAE at native precision
+            logger.info("Loading VAE at native FP32 precision from checkpoint...")
+            fp32_pipe = StableDiffusionXLPipeline.from_single_file(
+                model_path,
+                torch_dtype=torch.float32,
+                use_safetensors=True,
+            )
+            native_vae = fp32_pipe.vae
+
+            # Clean up FP32 pipeline components we don't need
+            del fp32_pipe.unet
+            del fp32_pipe.text_encoder
+            del fp32_pipe.text_encoder_2
+            del fp32_pipe
+
+            # Clear memory before second pass
+            if device == "cuda":
+                torch.cuda.empty_cache()
+            elif device == "mps" and hasattr(torch, 'mps'):
+                torch.mps.empty_cache()
+
+            # Second pass: Load main pipeline at BF16
+            logger.info("Loading UNet and text encoders at BF16 precision...")
+            pipe = StableDiffusionXLPipeline.from_single_file(
+                model_path,
+                torch_dtype=torch.bfloat16,
+                use_safetensors=True,
+            )
+
+            # Replace BF16 VAE with native FP32 VAE
+            pipe.vae = native_vae
+
+            # Wrap VAE decode to automatically cast BF16 latents to FP32
+            # This is needed because diffusers SDXL pipeline only auto-upcasts
+            # latents when VAE is FP16, not when VAE is FP32 with BF16 latents
+            original_decode = pipe.vae.decode
+
+            def decode_with_upcast(latents, *args, **kwargs):
+                if latents.dtype != torch.float32:
+                    latents = latents.to(dtype=torch.float32)
+                return original_decode(latents, *args, **kwargs)
+
+            pipe.vae.decode = decode_with_upcast
+            logger.info("BF16 pipeline loaded with native FP32 VAE (lossless)")
 
     pipe.scheduler = EulerDiscreteScheduler.from_config(
         pipe.scheduler.config,
