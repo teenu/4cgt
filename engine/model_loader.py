@@ -33,17 +33,28 @@ def check_bf16_support(device: str) -> bool:
     return False
 
 
-def load_pipeline(model_path: str, device: str, force_fp32: bool = False) -> tuple:
+def load_pipeline(model_path: str, device: str, force_fp32: bool = False, optimize: bool = False) -> tuple:
     """Load diffusion pipeline with proper precision handling.
 
     Args:
         model_path: Path to model file or directory
         device: Target device (cuda/mps/cpu)
         force_fp32: If True, force FP32 inference even for BF16 models (parity mode)
+        optimize: If True, enable TF32 + torch.compile for faster inference
 
     Returns:
         tuple: (pipeline, cpu_offload_enabled)
     """
+    # Enable TF32 for faster matmuls when optimize is enabled
+    if optimize and device == "cuda":
+        torch.set_float32_matmul_precision('high')
+        logger.info("TF32 enabled for faster matrix multiplications")
+
+        # Enable persistent inductor cache for faster subsequent runs
+        import tempfile
+        cache_dir = os.path.join(tempfile.gettempdir(), "noobai_inductor_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        os.environ.setdefault('TORCHINDUCTOR_CACHE_DIR', cache_dir)
     base_precision = detect_base_model_precision(model_path)
     is_directory = os.path.isdir(model_path)
 
@@ -172,5 +183,11 @@ def load_pipeline(model_path: str, device: str, force_fp32: bool = False) -> tup
         pipe = pipe.to(device)
 
     pipe.enable_vae_slicing()
+
+    # Apply torch.compile optimization when enabled
+    if optimize and device == "cuda":
+        logger.info("Compiling UNet with torch.compile (first inference will be slower)...")
+        pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead")
+        logger.info("UNet compiled successfully")
 
     return pipe, cpu_offload_enabled

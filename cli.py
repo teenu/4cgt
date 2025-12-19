@@ -98,13 +98,17 @@ def cli_generate(args):
         if args.force_fp32:
             print("🔒 Parity mode: FP32 inference enabled for reproducibility")
 
+        if args.optimize:
+            print("⚡ Performance mode: TF32 + torch.compile enabled (first run includes compilation)")
+
         engine = NoobAIEngine(
             model_path=path_or_error,
             enable_dora=args.enable_dora,
             dora_path=dora_path_to_use,
             adapter_strength=args.adapter_strength,
             dora_start_step=args.dora_start_step,
-            force_fp32=args.force_fp32
+            force_fp32=args.force_fp32,
+            optimize=args.optimize
         )
 
         width = args.width or OPTIMAL_SETTINGS['width']
@@ -232,6 +236,9 @@ def parse_args():
     %(prog)s --lan --force-fp32        # LAN mode with FP32 parity
     %(prog)s --cli --prompt "test" --force-fp32  # CLI with FP32 parity
 
+  Performance Mode:
+    %(prog)s --cli --prompt "test" --optimize    # ~2x faster with TF32 + torch.compile
+
   DoRA Adapters:
     %(prog)s --list-dora-adapters                        # List available adapters
     %(prog)s --cli --prompt "portrait" --enable-dora     # Auto-detect adapter
@@ -275,11 +282,13 @@ def parse_args():
                           help="Manual DoRA schedule CSV (e.g., '1,0,0,1')")
     cli_group.add_argument("--verbose", action="store_true", help="Show detailed generation info")
 
-    precision_group = parser.add_argument_group("Precision Options")
+    precision_group = parser.add_argument_group("Precision and Performance Options")
     precision_group.add_argument("--force-fp32", action="store_true",
                           help="Force FP32 inference for parity with FP32 directory models (uses more VRAM)")
     precision_group.add_argument("--parity-mode", action="store_true", dest="force_fp32",
                           help="Alias for --force-fp32 (parity testing mode)")
+    precision_group.add_argument("--optimize", action="store_true",
+                          help="Enable performance optimizations (TF32 + torch.compile). ~2x faster but outputs differ from baseline")
 
     gui_group = parser.add_argument_group("GUI Options")
     gui_group.add_argument("--host", type=str, default="127.0.0.1", help="GUI server host")
