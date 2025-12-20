@@ -184,10 +184,7 @@ def load_pipeline(model_path: str, device: str, force_fp32: bool = False, optimi
 
     pipe.enable_vae_slicing()
 
-    # Apply torch.compile optimization when enabled
-    if optimize and device == "cuda":
-        logger.info("Compiling UNet with torch.compile (first inference will be slower)...")
-        pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead")
-        logger.info("UNet compiled successfully")
+    # Note: torch.compile is applied in core.py AFTER DoRA loading
+    # Compiling before DoRA breaks adapter injection
 
     return pipe, cpu_offload_enabled

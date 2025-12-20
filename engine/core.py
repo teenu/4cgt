@@ -81,6 +81,13 @@ class NoobAIEngine:
                     if self._dora_manager.dora_loaded:
                         self._dora_manager.set_strength(self.adapter_strength)
 
+                # Apply torch.compile AFTER DoRA loading
+                # Compiling before DoRA breaks adapter injection into compiled modules
+                if self.optimize and self._device == "cuda":
+                    logger.info("Compiling UNet with torch.compile (first inference will be slower)...")
+                    self.pipe.unet = torch.compile(self.pipe.unet, mode="reduce-overhead")
+                    logger.info("UNet compiled successfully")
+
         except Exception as e:
             self.is_initialized = False
             if self.pipe is not None:
