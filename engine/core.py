@@ -341,21 +341,37 @@ class NoobAIEngine:
             )
 
             try:
-                # Generate embeddings (handles long prompts via sd_embed)
-                token_info = self._token_manager.get_status_info(prompt)
-                if token_info['warning']:
-                    logger.warning(token_info['warning'])
-                    info_parts.append(f"⚠️ {token_info['warning']}")
+                # Check token counts for both prompts to determine encoding mode
+                # sd_embed is ONLY used when either prompt exceeds 77 tokens
+                # This maintains output parity with older versions for short prompts
+                prompt_info = self._token_manager.get_status_info(prompt)
+                negative_info = self._token_manager.get_status_info(negative_prompt)
 
-                if token_info['is_long']:
-                    logger.info(f"Long prompt detected: {token_info['max_tokens']} tokens ({token_info['chunks']} chunks)")
+                prompt_exceeds = prompt_info['is_long']
+                negative_exceeds = negative_info['is_long']
+                use_sd_embed = prompt_exceeds or negative_exceeds
+
+                if prompt_info['warning']:
+                    logger.warning(prompt_info['warning'])
+                    info_parts.append(f"⚠️ {prompt_info['warning']}")
+
+                if use_sd_embed:
+                    if prompt_exceeds:
+                        logger.info(f"Long prompt: {prompt_info['max_tokens']} tokens ({prompt_info['chunks']} chunks)")
+                    if negative_exceeds:
+                        logger.info(f"Long negative: {negative_info['max_tokens']} tokens ({negative_info['chunks']} chunks)")
+                    logger.info("Using sd_embed for long prompt encoding")
+                else:
+                    logger.debug("Using standard SDXL encoding (both prompts <= 77 tokens)")
 
                 (prompt_embeds,
                  negative_prompt_embeds,
                  pooled_prompt_embeds,
                  negative_pooled_prompt_embeds) = self._embedding_generator.generate(
                     prompt=prompt,
-                    negative_prompt=negative_prompt
+                    negative_prompt=negative_prompt,
+                    prompt_exceeds_limit=prompt_exceeds,
+                    negative_exceeds_limit=negative_exceeds
                 )
 
                 with torch.no_grad():

@@ -21,7 +21,7 @@ def create_clear_handler(component_type: str):
     return handlers.get(component_type, clear_text)
 
 
-def format_token_count_html(token_info: dict) -> str:
+def format_token_count_html(token_info: dict, is_negative: bool = False) -> str:
     """Format token count information as HTML for display.
 
     Args:
@@ -31,12 +31,14 @@ def format_token_count_html(token_info: dict) -> str:
             - is_long: Whether prompt exceeds 77 tokens
             - warning: Warning message if applicable
             - long_prompt_supported: Whether sd_embed is available
+        is_negative: If True, format for negative prompt display
 
     Returns:
         HTML string for display in the token counter element
     """
+    prompt_type = "negative prompt" if is_negative else "prompt"
     if not token_info or token_info.get('max_tokens', 0) == 0:
-        return '<div style="color: gray; font-size: 0.9em;">Enter a prompt to see token count</div>'
+        return f'<div style="color: gray; font-size: 0.9em;">Enter a {prompt_type} to see token count</div>'
 
     tokens = token_info.get('max_tokens', 0)
     chunks = token_info.get('chunks', 1)

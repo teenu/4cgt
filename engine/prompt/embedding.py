@@ -9,8 +9,10 @@ The sd_embed library handles:
 - Proper handling of both SDXL text encoders (CLIP-L and OpenCLIP-G)
 - Correct generation of pooled embeddings required by SDXL
 
-If sd_embed is not available, a fallback mode uses the pipeline's native
-encoding which truncates at 77 tokens.
+IMPORTANT: To maintain output parity with older versions, sd_embed is ONLY
+activated when either the prompt or negative prompt exceeds 77 tokens.
+For prompts within the 77-token limit, the standard SDXL pipeline encoding
+is used to ensure identical outputs.
 """
 
 from typing import Tuple, Any, Optional
@@ -27,7 +29,7 @@ except ImportError:
 
 
 class EmbeddingGenerator:
-    """Generate embeddings for SDXL with long prompt support.
+    """Generate embeddings for SDXL with conditional long prompt support.
 
     This class wraps sd_embed's get_weighted_text_embeddings_sdxl function
     to provide:
@@ -35,11 +37,17 @@ class EmbeddingGenerator:
     - A1111 weight syntax support: (tag:1.2), [tag], ((emphasis))
     - Graceful fallback to standard encoding if sd_embed fails
 
+    IMPORTANT: To maintain output parity with older versions, sd_embed is
+    only used when prompts exceed the 77-token CLIP limit. For short prompts,
+    the standard SDXL pipeline encoding is used.
+
     Usage:
         generator = EmbeddingGenerator(pipe)
-        embeds = generator.generate(prompt, negative_prompt)
+        embeds = generator.generate(prompt, negative_prompt, use_long_prompt_mode=True)
         # Pass embeds to pipeline instead of raw prompt strings
     """
+
+    CLIP_TOKEN_LIMIT = 77
 
     def __init__(self, pipe: Any):
         """Initialize with SDXL pipeline.
@@ -48,27 +56,32 @@ class EmbeddingGenerator:
             pipe: StableDiffusionXLPipeline instance with text encoders
         """
         self.pipe = pipe
-        self._fallback_mode = not SD_EMBED_AVAILABLE
+        self._sd_embed_available = SD_EMBED_AVAILABLE
 
-        if self._fallback_mode:
-            logger.warning(
-                "Long prompt support disabled - sd_embed not available. "
-                "Install with: pip install sd-embed"
+        if not self._sd_embed_available:
+            logger.info(
+                "sd_embed not available - long prompts will be truncated to 77 tokens. "
+                "Install with: pip install git+https://github.com/xhinker/sd_embed.git@main"
             )
 
     def generate(
         self,
         prompt: str,
-        negative_prompt: str
+        negative_prompt: str,
+        prompt_exceeds_limit: bool = False,
+        negative_exceeds_limit: bool = False
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Generate embeddings for prompt and negative prompt.
 
-        Handles long prompts by chunking and concatenating embeddings.
-        Supports A1111 weight syntax: (tag:1.2), [tag], ((emphasis))
+        To maintain output parity with older versions, sd_embed is only used
+        when either prompt exceeds 77 tokens. For prompts within the limit,
+        standard SDXL pipeline encoding is used for identical outputs.
 
         Args:
             prompt: The positive prompt text
             negative_prompt: The negative prompt text
+            prompt_exceeds_limit: True if prompt has > 77 tokens
+            negative_exceeds_limit: True if negative prompt has > 77 tokens
 
         Returns:
             Tuple of 4 tensors:
@@ -77,8 +90,20 @@ class EmbeddingGenerator:
             - pooled_prompt_embeds: Pooled positive embedding
             - negative_pooled_prompt_embeds: Pooled negative embedding
         """
-        if self._fallback_mode:
-            return self._fallback_encode(prompt, negative_prompt)
+        # Determine if we need sd_embed (either prompt exceeds 77 tokens)
+        needs_long_prompt_mode = prompt_exceeds_limit or negative_exceeds_limit
+
+        # Use standard encoding for short prompts (maintains output parity)
+        if not needs_long_prompt_mode:
+            return self._standard_encode(prompt, negative_prompt)
+
+        # Use sd_embed for long prompts if available
+        if not self._sd_embed_available:
+            logger.warning(
+                "Long prompt detected but sd_embed not available. "
+                "Prompt will be truncated to 77 tokens."
+            )
+            return self._standard_encode(prompt, negative_prompt)
 
         try:
             # Use sd_embed for long prompt handling
@@ -99,18 +124,19 @@ class EmbeddingGenerator:
             )
 
         except Exception as e:
-            logger.warning(f"sd_embed encoding failed, using fallback: {e}")
-            return self._fallback_encode(prompt, negative_prompt)
+            logger.warning(f"sd_embed encoding failed, using standard encoding: {e}")
+            return self._standard_encode(prompt, negative_prompt)
 
-    def _fallback_encode(
+    def _standard_encode(
         self,
         prompt: str,
         negative_prompt: str
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Fallback to standard pipeline encoding.
+        """Standard SDXL pipeline encoding (77-token limit).
 
-        This method uses the pipeline's built-in encode_prompt method,
-        which will truncate prompts at 77 tokens per encoder.
+        This method uses the pipeline's built-in encode_prompt method.
+        Used for prompts within the 77-token limit to maintain output
+        parity with older versions that didn't support long prompts.
 
         Args:
             prompt: The positive prompt text
@@ -148,17 +174,17 @@ class EmbeddingGenerator:
             )
 
         except Exception as e:
-            logger.error(f"Fallback encoding also failed: {e}")
-            raise RuntimeError(f"Both sd_embed and fallback encoding failed: {e}")
+            logger.error(f"Standard encoding failed: {e}")
+            raise RuntimeError(f"Prompt encoding failed: {e}")
 
     @property
     def is_long_prompt_supported(self) -> bool:
         """Check if long prompt support is available.
 
         Returns:
-            True if sd_embed is available and not in fallback mode
+            True if sd_embed is available for use with long prompts
         """
-        return SD_EMBED_AVAILABLE and not self._fallback_mode
+        return self._sd_embed_available
 
     @property
     def mode_description(self) -> str:
@@ -167,7 +193,7 @@ class EmbeddingGenerator:
         Returns:
             Description string for logging/display
         """
-        if self.is_long_prompt_supported:
-            return "sd_embed (unlimited length, A1111 weight syntax)"
+        if self._sd_embed_available:
+            return "standard (sd_embed available for prompts > 77 tokens)"
         else:
-            return "fallback (77-token limit, no weight syntax)"
+            return "standard only (77-token limit)"

@@ -153,6 +153,10 @@ def create_interface(model_path: str = None, force_fp32: bool = False, optimize:
                         value=DEFAULT_NEGATIVE_PROMPT,
                         lines=3
                     )
+                    negative_token_counter = gr.HTML(
+                        value='<div style="color: gray; font-size: 0.9em;">Negative token count will appear when engine is ready</div>',
+                        elem_classes=["token-counter"]
+                    )
                     negative_reset_btn = gr.Button("🔄 Reset Negative", size="sm")
 
                 # Resolution settings
@@ -471,7 +475,7 @@ def create_interface(model_path: str = None, force_fp32: bool = False, optimize:
         connect_search_events('artist', artist_search, artist_dropdown, artist_text, artist_clear_btn, artist_randomize_btn, artist_source_filter,
                               compose_fn=compose_final_prompt, compose_inputs=all_prompt_inputs, final_prompt_output=final_prompt)
 
-        # Token counter update function
+        # Token counter update functions
         def update_token_counter(prompt_text: str) -> str:
             """Update the token counter display based on current prompt."""
             engine = get_engine_safely()
@@ -480,11 +484,27 @@ def create_interface(model_path: str = None, force_fp32: bool = False, optimize:
             token_info = engine.count_prompt_tokens(prompt_text)
             return format_token_count_html(token_info)
 
+        def update_negative_token_counter(negative_text: str) -> str:
+            """Update the negative prompt token counter display."""
+            engine = get_engine_safely()
+            if engine is None or not engine.is_initialized:
+                return '<div style="color: gray; font-size: 0.9em;">Initialize engine for token count</div>'
+            token_info = engine.count_prompt_tokens(negative_text)
+            return format_token_count_html(token_info, is_negative=True)
+
         # Wire up token counter to final prompt changes
         final_prompt.change(
             update_token_counter,
             inputs=[final_prompt],
             outputs=[token_counter],
+            show_progress=False
+        )
+
+        # Wire up negative prompt token counter
+        negative_prompt.change(
+            update_negative_token_counter,
+            inputs=[negative_prompt],
+            outputs=[negative_token_counter],
             show_progress=False
         )
 
