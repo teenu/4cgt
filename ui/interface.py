@@ -52,6 +52,22 @@ def create_interface(model_path: str = None, force_fp32: bool = False, optimize:
     is_ready = is_engine_ready()
     dora_ui_state = get_dora_ui_state()
 
+    # Compute initial token counter values based on engine state
+    # Final prompt starts empty, negative prompt has default value
+    if is_ready:
+        engine = get_engine_safely()
+        # Empty prompt shows "Enter a prompt" message
+        initial_token_html = '<div style="color: gray; font-size: 0.9em;">Enter a prompt to see token count</div>'
+        # Negative prompt has default value, show its token count
+        if engine and engine.is_initialized:
+            neg_token_info = engine.count_prompt_tokens(DEFAULT_NEGATIVE_PROMPT)
+            initial_neg_token_html = format_token_count_html(neg_token_info, is_negative=True)
+        else:
+            initial_neg_token_html = '<div style="color: gray; font-size: 0.9em;">Engine ready but token count unavailable</div>'
+    else:
+        initial_token_html = '<div style="color: gray; font-size: 0.9em;">Token count will appear when engine is ready</div>'
+        initial_neg_token_html = '<div style="color: gray; font-size: 0.9em;">Negative token count will appear when engine is ready</div>'
+
     resolution_options = [
         f"{w}x{h}{' (Optimal)' if (h, w) in RECOMMENDED_RESOLUTIONS else ''}"
         for h, w in OFFICIAL_RESOLUTIONS
@@ -138,7 +154,7 @@ def create_interface(model_path: str = None, force_fp32: bool = False, optimize:
                         gr.HTML('<div class="segment-header">🎯 Final Prompt</div>')
                         final_prompt = gr.Textbox(label="Positive Prompt", lines=4)
                         token_counter = gr.HTML(
-                            value='<div style="color: gray; font-size: 0.9em;">Token count will appear when engine is ready</div>',
+                            value=initial_token_html,
                             elem_classes=["token-counter"]
                         )
                         with gr.Row():
@@ -154,7 +170,7 @@ def create_interface(model_path: str = None, force_fp32: bool = False, optimize:
                         lines=3
                     )
                     negative_token_counter = gr.HTML(
-                        value='<div style="color: gray; font-size: 0.9em;">Negative token count will appear when engine is ready</div>',
+                        value=initial_neg_token_html,
                         elem_classes=["token-counter"]
                     )
                     negative_reset_btn = gr.Button("🔄 Reset Negative", size="sm")
@@ -366,7 +382,8 @@ def create_interface(model_path: str = None, force_fp32: bool = False, optimize:
             )
 
         # Wire up event handlers
-        init_btn.click(
+        # Store init event to chain token counter updates later (after functions are defined)
+        init_event = init_btn.click(
             init_and_update,
             inputs=[model_path_input, enable_dora, dora_path, dora_selection],
             outputs=[init_status_display, status_indicator, generate_btn, init_status_display]
@@ -502,6 +519,20 @@ def create_interface(model_path: str = None, force_fp32: bool = False, optimize:
 
         # Wire up negative prompt token counter
         negative_prompt.change(
+            update_negative_token_counter,
+            inputs=[negative_prompt],
+            outputs=[negative_token_counter],
+            show_progress=False
+        )
+
+        # Update both token counters after engine initialization
+        # (now that update functions are defined, chain them to init_event)
+        init_event.then(
+            update_token_counter,
+            inputs=[final_prompt],
+            outputs=[token_counter],
+            show_progress=False
+        ).then(
             update_negative_token_counter,
             inputs=[negative_prompt],
             outputs=[negative_token_counter],
