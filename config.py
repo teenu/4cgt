@@ -95,9 +95,10 @@ class ControlNetConfig:
     SUPPORTED_FORMATS: Tuple[str, ...] = ('.safetensors',)
 
     # Conditioning scale configuration
+    # V-prediction models require higher ControlNet scales (~2.0) for proper pose adherence
     MIN_CONDITIONING_SCALE: float = 0.0
-    MAX_CONDITIONING_SCALE: float = 2.0
-    DEFAULT_CONDITIONING_SCALE: float = 1.0
+    MAX_CONDITIONING_SCALE: float = 3.0
+    DEFAULT_CONDITIONING_SCALE: float = 2.0
 
     # Pose image configuration
     MIN_POSE_DIMENSION: int = 64

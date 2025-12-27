@@ -56,6 +56,15 @@ class ControlNetManager:
         self.controlnet_path: Optional[str] = None
         self.controlnet_loaded = False
         self.conditioning_scale = CONTROLNET_CONFIG.DEFAULT_CONDITIONING_SCALE
+        self._last_error: Optional[str] = None
+
+    def get_last_error(self) -> Optional[str]:
+        """Get the last error message from failed operations.
+
+        Returns:
+            The last error message, or None if no error occurred.
+        """
+        return self._last_error
 
     def _check_bf16_support(self) -> bool:
         """Check if device supports bfloat16."""
@@ -109,30 +118,38 @@ class ControlNetManager:
                 load_dtype = torch.float32
                 logger.info("Loading ControlNet as FP32 (default)")
 
-            # Load ControlNet model
+            # Load ControlNet model with explicit SDXL config
+            # All SDXL ControlNets (Canny, OpenPose, Depth, etc.) share the same architecture.
+            # Using explicit config avoids auto-detection issues on some systems where
+            # diffusers incorrectly detects SDXL models as SD1.5.
             self.controlnet = ControlNetModel.from_single_file(
                 validated_path,
-                torch_dtype=load_dtype
+                torch_dtype=load_dtype,
+                config="diffusers/controlnet-canny-sdxl-1.0"
             )
             self.controlnet = self.controlnet.to(self.device)
 
             self.controlnet_path = validated_path
             self.controlnet_loaded = True
+            self._last_error = None  # Clear any previous error on success
             logger.info(f"ControlNet loaded: {os.path.basename(validated_path)}")
             return True
 
         except (IOError, OSError) as e:
+            self._last_error = f"File error: {e}"
             logger.error(f"Failed to load ControlNet (file error): {e}")
             self.controlnet_loaded = False
             self.controlnet = None
             return False
         except (RuntimeError, ValueError) as e:
+            self._last_error = f"Runtime/validation error: {e}"
             logger.error(f"Failed to load ControlNet (runtime/validation error): {e}")
             clear_memory(self.device)
             self.controlnet_loaded = False
             self.controlnet = None
             return False
         except Exception as e:
+            self._last_error = f"Unexpected error: {e}"
             logger.error(f"Unexpected error loading ControlNet: {e}")
             clear_memory(self.device)
             self.controlnet_loaded = False

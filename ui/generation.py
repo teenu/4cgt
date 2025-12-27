@@ -105,13 +105,15 @@ def generate_image_with_progress(
             if not current_engine.controlnet_loaded:
                 logger.info(f"Loading ControlNet: {controlnet_selection}")
                 if not current_engine.load_controlnet(controlnet_path):
+                    error_detail = current_engine.get_controlnet_error() or "Unknown error"
                     state_manager.set_state(GenerationState.ERROR)
-                    return None, f"❌ Failed to load ControlNet model '{controlnet_selection}'", seed
+                    return None, f"❌ Failed to load ControlNet: {error_detail}", seed
             elif current_controlnet_path != controlnet_path:
                 logger.info(f"Switching ControlNet to: {controlnet_selection}")
                 if not current_engine.switch_controlnet(controlnet_path):
+                    error_detail = current_engine.get_controlnet_error() or "Unknown error"
                     state_manager.set_state(GenerationState.ERROR)
-                    return None, f"❌ Failed to switch ControlNet model to '{controlnet_selection}'", seed
+                    return None, f"❌ Failed to switch ControlNet: {error_detail}", seed
 
             # Validate pose image
             if pose_image_input is None:

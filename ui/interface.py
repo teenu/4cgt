@@ -382,7 +382,7 @@ def create_interface(model_path: str = None, force_fp32: bool = False, optimize:
                         step=0.05,
                         value=CONTROLNET_CONFIG.DEFAULT_CONDITIONING_SCALE,
                         visible=False,
-                        info="Strength of pose conditioning (0.0 = no effect, 1.0 = full control)"
+                        info="Strength of pose conditioning. V-pred models need ~2.0 for proper pose adherence"
                     )
 
                 # Generate button

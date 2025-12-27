@@ -236,6 +236,16 @@ class NoobAIEngine:
             'model_name': None
         }
 
+    def get_controlnet_error(self) -> Optional[str]:
+        """Get the last ControlNet error message.
+
+        Returns:
+            The last error message from ControlNet operations, or None.
+        """
+        if self._controlnet_manager:
+            return self._controlnet_manager.get_last_error()
+        return None
+
     def count_prompt_tokens(self, prompt: str) -> Dict[str, Any]:
         """Get token count information for a prompt.
 
@@ -469,13 +479,15 @@ class NoobAIEngine:
                 with torch.no_grad():
                     if use_controlnet and control_image is not None:
                         # ControlNet generation
+                        # Ensure controlnet_conditioning_scale is a proper float (diffusers requirement)
+                        cn_scale = float(self.controlnet_scale) if self.controlnet_scale is not None else 1.0
                         result = active_pipe(
                             prompt_embeds=prompt_embeds,
                             negative_prompt_embeds=negative_prompt_embeds,
                             pooled_prompt_embeds=pooled_prompt_embeds,
                             negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
                             image=control_image,
-                            controlnet_conditioning_scale=self.controlnet_scale,
+                            controlnet_conditioning_scale=cn_scale,
                             width=width,
                             height=height,
                             num_inference_steps=steps,
