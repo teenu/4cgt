@@ -2,11 +2,18 @@
 
 import os
 import argparse
-from config import logger, OPTIMAL_SETTINGS, MODEL_CONFIG, DEFAULT_NEGATIVE_PROMPT, DORA_SEARCH_DIRECTORIES, OPTIMIZED_DORA_SETTINGS, OPTIMIZED_DORA_SCHEDULE_CSV
+from PIL import Image
+from config import (
+    logger, OPTIMAL_SETTINGS, MODEL_CONFIG, CONTROLNET_CONFIG, DEFAULT_NEGATIVE_PROMPT,
+    DORA_SEARCH_DIRECTORIES, CONTROLNET_SEARCH_DIRECTORIES,
+    OPTIMIZED_DORA_SETTINGS, OPTIMIZED_DORA_SCHEDULE_CSV
+)
 from utils import (
     discover_dora_adapters, get_dora_adapter_by_name, validate_model_path,
     validate_dora_path, detect_adapter_precision, get_user_friendly_error,
-    calculate_image_hash, find_dora_path, parse_manual_dora_schedule
+    calculate_image_hash, find_dora_path, parse_manual_dora_schedule,
+    discover_controlnet_models, get_controlnet_by_name, find_controlnet_path,
+    validate_controlnet_path, detect_controlnet_precision
 )
 from ui.engine_manager import find_model_path
 from ui.validation import validate_parameters
@@ -32,6 +39,26 @@ def cli_list_adapters():
     print()
 
 
+def cli_list_controlnets():
+    """List all discovered ControlNet models."""
+    print("🎭 Discovered ControlNet Models:")
+    models = discover_controlnet_models()
+
+    if not models:
+        print("   No ControlNet models found in search directories.")
+        print("   Search directories:")
+        for directory in CONTROLNET_SEARCH_DIRECTORIES:
+            status = "✓" if os.path.exists(directory) else "✗ (not found)"
+            print(f"     {status} {directory}")
+        return
+
+    for i, model in enumerate(models):
+        print(f"   [{i}] {model['display_name']}")
+        print(f"       Path: {model['path']}")
+        print(f"       Type: {model['type']}")
+    print()
+
+
 def cli_generate(args):
     """Generate image in CLI mode."""
     os.environ['NOOBAI_CLI_MODE'] = '1'
@@ -40,6 +67,10 @@ def cli_generate(args):
     try:
         if hasattr(args, 'list_dora_adapters') and args.list_dora_adapters:
             cli_list_adapters()
+            return 0
+
+        if hasattr(args, 'list_controlnets') and args.list_controlnets:
+            cli_list_controlnets()
             return 0
 
         if not args.model_path:
@@ -101,6 +132,50 @@ def cli_generate(args):
         if args.optimize:
             print("⚡ Performance mode: TF32 enabled" + (" (torch.compile skipped for DoRA compatibility)" if args.enable_dora else " + torch.compile (first run slower)"))
 
+        # Handle ControlNet
+        controlnet_path_to_use = None
+        if args.pose_image:
+            # If pose image is provided, we need a ControlNet
+            if hasattr(args, 'controlnet_index') and args.controlnet_index is not None:
+                models = discover_controlnet_models()
+                if 0 <= args.controlnet_index < len(models):
+                    model_info = models[args.controlnet_index]
+                    controlnet_path_to_use = model_info['path']
+                    print(f"🎭 ControlNet: {model_info['display_name']}")
+                else:
+                    print(f"❌ Invalid ControlNet index {args.controlnet_index}. Available: 0-{len(models)-1}")
+                    return 1
+            elif hasattr(args, 'controlnet_name') and args.controlnet_name:
+                model_info = get_controlnet_by_name(args.controlnet_name)
+                if model_info:
+                    controlnet_path_to_use = model_info['path']
+                    print(f"🎭 ControlNet: {model_info['display_name']}")
+                else:
+                    print(f"❌ ControlNet '{args.controlnet_name}' not found")
+                    print("Available ControlNets:")
+                    cli_list_controlnets()
+                    return 1
+            elif args.controlnet_path:
+                cn_valid, cn_result = validate_controlnet_path(args.controlnet_path)
+                if cn_valid:
+                    controlnet_path_to_use = cn_result
+                    precision = detect_controlnet_precision(cn_result)
+                    print(f"🎭 ControlNet: {os.path.basename(cn_result)} ({precision})")
+                else:
+                    print(f"⚠️ ControlNet validation failed: {cn_result}")
+                    return 1
+            else:
+                # Auto-detect ControlNet
+                auto_cn_path = find_controlnet_path("openpose")
+                if auto_cn_path:
+                    controlnet_path_to_use = auto_cn_path
+                    precision = detect_controlnet_precision(auto_cn_path)
+                    print(f"🎭 ControlNet: {os.path.basename(auto_cn_path)} ({precision}, auto-detected)")
+                else:
+                    print("⚠️ Pose image provided but no ControlNet found")
+                    print("Use --list-controlnets to see available models")
+                    return 1
+
         engine = NoobAIEngine(
             model_path=path_or_error,
             enable_dora=args.enable_dora,
@@ -108,7 +183,9 @@ def cli_generate(args):
             adapter_strength=args.adapter_strength,
             dora_start_step=args.dora_start_step,
             force_fp32=args.force_fp32,
-            optimize=args.optimize
+            optimize=args.optimize,
+            controlnet_path=controlnet_path_to_use,
+            controlnet_scale=args.controlnet_scale
         )
 
         width = args.width or OPTIMAL_SETTINGS['width']
@@ -153,11 +230,23 @@ def cli_generate(args):
                 print("⚠️ Manual toggle mode selected but no schedule provided (--dora-manual-schedule)")
                 print("   DoRA will be OFF for all steps")
 
+        # Load pose image if provided
+        pose_image = None
+        if args.pose_image:
+            try:
+                pose_image = Image.open(args.pose_image).convert("RGB")
+                print(f"🎭 Pose image: {args.pose_image} ({pose_image.size[0]}x{pose_image.size[1]})")
+            except Exception as e:
+                print(f"❌ Failed to load pose image: {e}")
+                return 1
+
         print(f"🎨 Generating image...")
         print(f"   Prompt: {prompt}")
         print(f"   Resolution: {width}x{height}")
         print(f"   Steps: {args.steps}")
         print(f"   CFG Scale: {args.cfg_scale}")
+        if pose_image:
+            print(f"   ControlNet Scale: {args.controlnet_scale}")
 
         def progress_callback(progress, desc):
             print(f"   {desc}")
@@ -176,7 +265,9 @@ def cli_generate(args):
             dora_start_step=args.dora_start_step if args.enable_dora else None,
             dora_toggle_mode=args.dora_toggle_mode if args.enable_dora else None,
             dora_manual_schedule=manual_schedule_csv if args.enable_dora else None,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            pose_image=pose_image,
+            controlnet_scale=args.controlnet_scale if pose_image else None
         )
 
         output_path = args.output or f"noobai_{seed}.png"
@@ -247,6 +338,11 @@ def parse_args():
     %(prog)s --cli --prompt "fantasy" --enable-dora --dora-adapter 0
     %(prog)s --cli --prompt "landscape" --enable-dora --dora-toggle-mode optimized
     %(prog)s --cli --prompt "portrait" --enable-dora --dora-toggle-mode manual --dora-manual-schedule "1,0,0,1"
+
+  ControlNet (Pose):
+    %(prog)s --list-controlnets                                          # List available ControlNets
+    %(prog)s --cli --prompt "1girl" --pose-image pose.png                # Use pose for anatomy control
+    %(prog)s --cli --prompt "1girl" --pose-image pose.png --controlnet-scale 0.8
 """
     )
 
@@ -260,6 +356,15 @@ def parse_args():
     parser.add_argument("--dora-adapter", type=int, help="Select DoRA adapter by index")
     parser.add_argument("--dora-name", type=str, help="Select DoRA adapter by filename")
     parser.add_argument("--dora-path", type=str, help="Manual path to DoRA adapter (.safetensors)")
+
+    # ControlNet arguments
+    parser.add_argument("--list-controlnets", action="store_true", help="List ControlNet models and exit")
+    parser.add_argument("--pose-image", type=str, help="Path to OpenPose skeleton image for pose control")
+    parser.add_argument("--controlnet-path", type=str, help="Manual path to ControlNet model (.safetensors)")
+    parser.add_argument("--controlnet-index", type=int, help="Select ControlNet model by index")
+    parser.add_argument("--controlnet-name", type=str, help="Select ControlNet model by filename")
+    parser.add_argument("--controlnet-scale", type=float, default=CONTROLNET_CONFIG.DEFAULT_CONDITIONING_SCALE,
+                       help=f"ControlNet conditioning scale (default: {CONTROLNET_CONFIG.DEFAULT_CONDITIONING_SCALE}, range: {CONTROLNET_CONFIG.MIN_CONDITIONING_SCALE}-{CONTROLNET_CONFIG.MAX_CONDITIONING_SCALE})")
 
     cli_group = parser.add_argument_group("CLI Generation Options")
     cli_group.add_argument("--prompt", type=str, help="Positive prompt")

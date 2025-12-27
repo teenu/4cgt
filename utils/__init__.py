@@ -13,6 +13,17 @@ from utils.dora import (
     detect_adapter_precision,
     clear_adapters_cache
 )
+from utils.controlnet import (
+    discover_controlnet_models,
+    find_controlnet_path,
+    get_controlnet_by_name,
+    detect_controlnet_precision,
+    detect_controlnet_type,
+    validate_controlnet_path,
+    validate_pose_image,
+    preprocess_pose_image,
+    clear_models_cache
+)
 from utils.formatting import (
     normalize_text,
     format_file_size,
@@ -37,6 +48,15 @@ __all__ = [
     'get_dora_adapter_by_name',
     'detect_adapter_precision',
     'clear_adapters_cache',
+    'discover_controlnet_models',
+    'find_controlnet_path',
+    'get_controlnet_by_name',
+    'detect_controlnet_precision',
+    'detect_controlnet_type',
+    'validate_controlnet_path',
+    'validate_pose_image',
+    'preprocess_pose_image',
+    'clear_models_cache',
     'normalize_text',
     'format_file_size',
     'calculate_image_hash',

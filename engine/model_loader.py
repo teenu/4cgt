@@ -1,8 +1,15 @@
 """Model loading and initialization."""
 
 import os
+from typing import Optional
 import torch
-from diffusers import StableDiffusionXLPipeline, EulerDiscreteScheduler, AutoencoderKL
+from diffusers import (
+    StableDiffusionXLPipeline,
+    StableDiffusionXLControlNetPipeline,
+    EulerDiscreteScheduler,
+    AutoencoderKL,
+    ControlNetModel
+)
 from config import logger
 from utils import detect_base_model_precision
 
@@ -189,3 +196,92 @@ def load_pipeline(model_path: str, device: str, force_fp32: bool = False, optimi
     # Compiling before DoRA breaks adapter injection
 
     return pipe, cpu_offload_enabled
+
+
+def create_controlnet_pipeline(
+    base_pipe: StableDiffusionXLPipeline,
+    controlnet: ControlNetModel,
+    device: str
+) -> StableDiffusionXLControlNetPipeline:
+    """Create a ControlNet pipeline from an existing base pipeline.
+
+    This function wraps an existing SDXL pipeline with ControlNet support,
+    preserving all components including VAE decode wrapping and scheduler config.
+
+    Args:
+        base_pipe: The base StableDiffusionXLPipeline
+        controlnet: Loaded ControlNetModel
+        device: Target device (cuda/mps/cpu)
+
+    Returns:
+        StableDiffusionXLControlNetPipeline with ControlNet integrated
+    """
+    # Check if VAE decode has been wrapped (for BF16→FP32 latent casting)
+    vae_decode_wrapped = hasattr(base_pipe.vae.decode, '__wrapped__') or \
+                         base_pipe.vae.decode.__name__ == 'decode_with_upcast' if hasattr(base_pipe.vae.decode, '__name__') else False
+
+    # Store the original/wrapped decode function
+    original_vae_decode = base_pipe.vae.decode
+
+    # Create ControlNet pipeline with all components from base
+    controlnet_pipe = StableDiffusionXLControlNetPipeline(
+        vae=base_pipe.vae,
+        text_encoder=base_pipe.text_encoder,
+        text_encoder_2=base_pipe.text_encoder_2,
+        tokenizer=base_pipe.tokenizer,
+        tokenizer_2=base_pipe.tokenizer_2,
+        unet=base_pipe.unet,
+        controlnet=controlnet,
+        scheduler=base_pipe.scheduler,
+    )
+
+    # Restore VAE decode wrapper if it was present
+    # This ensures FP32 latent upcasting continues to work
+    controlnet_pipe.vae.decode = original_vae_decode
+
+    # Apply same optimizations
+    controlnet_pipe.enable_vae_slicing()
+
+    logger.info("ControlNet pipeline created from base pipeline")
+
+    return controlnet_pipe
+
+
+def convert_to_base_pipeline(
+    controlnet_pipe: StableDiffusionXLControlNetPipeline,
+    device: str
+) -> StableDiffusionXLPipeline:
+    """Convert a ControlNet pipeline back to a base pipeline.
+
+    This is useful when switching between ControlNet and non-ControlNet generation.
+
+    Args:
+        controlnet_pipe: The ControlNet pipeline to convert
+        device: Target device (cuda/mps/cpu)
+
+    Returns:
+        StableDiffusionXLPipeline without ControlNet
+    """
+    # Store the original/wrapped decode function
+    original_vae_decode = controlnet_pipe.vae.decode
+
+    # Create base pipeline from ControlNet components
+    base_pipe = StableDiffusionXLPipeline(
+        vae=controlnet_pipe.vae,
+        text_encoder=controlnet_pipe.text_encoder,
+        text_encoder_2=controlnet_pipe.text_encoder_2,
+        tokenizer=controlnet_pipe.tokenizer,
+        tokenizer_2=controlnet_pipe.tokenizer_2,
+        unet=controlnet_pipe.unet,
+        scheduler=controlnet_pipe.scheduler,
+    )
+
+    # Restore VAE decode wrapper
+    base_pipe.vae.decode = original_vae_decode
+
+    # Apply same optimizations
+    base_pipe.enable_vae_slicing()
+
+    logger.info("Base pipeline restored from ControlNet pipeline")
+
+    return base_pipe

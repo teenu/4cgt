@@ -87,11 +87,28 @@ class PromptConfig:
     TOKEN_LIMIT: int = 77     # CLIP token limit per encoder
     CHUNK_SIZE: int = 75      # Usable tokens per chunk (77 - BOS/EOS)
 
+@dataclass
+class ControlNetConfig:
+    """ControlNet configuration constants."""
+    MIN_FILE_SIZE_MB: int = 100
+    MAX_FILE_SIZE_GB: int = 10
+    SUPPORTED_FORMATS: Tuple[str, ...] = ('.safetensors',)
+
+    # Conditioning scale configuration
+    MIN_CONDITIONING_SCALE: float = 0.0
+    MAX_CONDITIONING_SCALE: float = 2.0
+    DEFAULT_CONDITIONING_SCALE: float = 1.0
+
+    # Pose image configuration
+    MIN_POSE_DIMENSION: int = 64
+    MAX_POSE_DIMENSION: int = 4096
+
 # Create configuration instances
 MODEL_CONFIG = ModelConfig()
 GEN_CONFIG = GenerationConfig()
 SEARCH_CONFIG = SearchConfig()
 PROMPT_CONFIG = PromptConfig()
+CONTROLNET_CONFIG = ControlNetConfig()
 
 # Output directory for generated images
 # Use 'outputs' subdirectory in script location for persistent storage
@@ -216,4 +233,11 @@ DORA_SEARCH_DIRECTORIES = [
     os.path.join(_script_dir, "dora"),
     _script_dir,
     os.path.join(os.path.expanduser("~"), "Downloads", "dora")
+]
+
+CONTROLNET_SEARCH_DIRECTORIES = [
+    os.path.join(_script_dir, "controlnet"),
+    _script_dir,
+    os.path.join(os.path.expanduser("~"), "Models", "controlnet"),
+    os.path.join(os.path.expanduser("~"), "Downloads", "controlnet")
 ]

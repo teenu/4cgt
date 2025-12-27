@@ -3,10 +3,12 @@
 import os
 import gradio as gr
 from typing import Tuple, Optional
+from PIL import Image
 from config import logger, OUTPUT_DIR, InvalidParameterError, GenerationInterruptedError
 from state import state_manager, GenerationState
 from ui.engine_manager import get_engine_safely
 from ui.validation import parse_resolution_string, _coerce_int, _coerce_float, validate_parameters
+from ui.controlnet_helpers import get_controlnet_path_from_display_name
 from utils import calculate_image_hash, get_user_friendly_error
 
 
@@ -32,7 +34,9 @@ def generate_image_with_progress(
     prompt: str, negative_prompt: str, resolution: str, cfg_scale: float, steps: int,
     rescale_cfg: float, seed: str, use_custom_resolution: bool, custom_width: int,
     custom_height: int, auto_randomize_seed: bool, adapter_strength: float, enable_dora: bool,
-    dora_start_step: int, dora_toggle_mode: Optional[str], dora_manual_schedule: str, progress=gr.Progress()
+    dora_start_step: int, dora_toggle_mode: Optional[str], dora_manual_schedule: str,
+    enable_controlnet: bool, controlnet_selection: str, pose_image_input: Optional[Image.Image],
+    controlnet_scale: float, progress=gr.Progress()
 ) -> Tuple[Optional[str], str, str]:
     """Generate image with progress tracking."""
     try:
@@ -82,6 +86,44 @@ def generate_image_with_progress(
 
         progress(0, desc="Starting generation...")
 
+        # Resolve ControlNet path from selection if enabled
+        controlnet_path = None
+        actual_pose_image = None
+
+        if enable_controlnet:
+            if not controlnet_selection or controlnet_selection == "None":
+                state_manager.set_state(GenerationState.ERROR)
+                return None, "❌ Please select a ControlNet model", seed
+
+            controlnet_path = get_controlnet_path_from_display_name(controlnet_selection)
+            if not controlnet_path:
+                state_manager.set_state(GenerationState.ERROR)
+                return None, f"❌ ControlNet model '{controlnet_selection}' not found", seed
+
+            # Load or switch ControlNet if needed
+            current_controlnet_path = current_engine.controlnet_path
+            if not current_engine.controlnet_loaded:
+                logger.info(f"Loading ControlNet: {controlnet_selection}")
+                if not current_engine.load_controlnet(controlnet_path):
+                    state_manager.set_state(GenerationState.ERROR)
+                    return None, f"❌ Failed to load ControlNet model '{controlnet_selection}'", seed
+            elif current_controlnet_path != controlnet_path:
+                logger.info(f"Switching ControlNet to: {controlnet_selection}")
+                if not current_engine.switch_controlnet(controlnet_path):
+                    state_manager.set_state(GenerationState.ERROR)
+                    return None, f"❌ Failed to switch ControlNet model to '{controlnet_selection}'", seed
+
+            # Validate pose image
+            if pose_image_input is None:
+                state_manager.set_state(GenerationState.ERROR)
+                return None, "❌ Please upload a pose image when ControlNet is enabled", seed
+
+            if not isinstance(pose_image_input, Image.Image):
+                state_manager.set_state(GenerationState.ERROR)
+                return None, "❌ Invalid pose image format", seed
+
+            actual_pose_image = pose_image_input
+
         image, final_seed, info = current_engine.generate(
             prompt=prompt,
             negative_prompt=negative_prompt,
@@ -96,6 +138,8 @@ def generate_image_with_progress(
             dora_start_step=dora_start_step if enable_dora else None,
             dora_toggle_mode=dora_toggle_mode if enable_dora else None,
             dora_manual_schedule=dora_manual_schedule if enable_dora else None,
+            pose_image=actual_pose_image,
+            controlnet_scale=controlnet_scale if enable_controlnet else None,
             progress_callback=lambda p, d: progress(p, desc=d)
         )
 

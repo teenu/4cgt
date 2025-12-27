@@ -5,17 +5,19 @@ import time
 import random
 import torch
 from PIL import Image, PngImagePlugin
-from typing import Any, Optional, Tuple, Dict, Callable
+from typing import Any, Optional, Tuple, Dict, Callable, Union
+from diffusers import StableDiffusionXLPipeline, StableDiffusionXLControlNetPipeline
 from config import (
-    logger, MODEL_CONFIG, DEFAULT_NEGATIVE_PROMPT, OPTIMAL_SETTINGS,
+    logger, MODEL_CONFIG, CONTROLNET_CONFIG, DEFAULT_NEGATIVE_PROMPT, OPTIMAL_SETTINGS,
     OFFICIAL_RESOLUTIONS, RECOMMENDED_RESOLUTIONS,
     OPTIMAL_STEPS_RANGE, OPTIMAL_CFG_RANGE,
     EngineNotInitializedError, InvalidParameterError
 )
 from state import perf_monitor
 from utils import parse_manual_dora_schedule
-from engine.model_loader import detect_device, load_pipeline
+from engine.model_loader import detect_device, load_pipeline, create_controlnet_pipeline
 from engine.dora_manager import DoRAManager
+from engine.controlnet_manager import ControlNetManager
 from engine.progress import ProgressManager
 from engine.memory import clear_memory, teardown_pipeline
 from engine.prompt import TokenManager, EmbeddingGenerator
@@ -44,22 +46,27 @@ class NoobAIEngine:
     def __init__(self, model_path: str, enable_dora: bool = False, dora_path: Optional[str] = None,
                  adapter_strength: float = MODEL_CONFIG.DEFAULT_ADAPTER_STRENGTH,
                  dora_start_step: int = MODEL_CONFIG.DEFAULT_DORA_START_STEP,
-                 force_fp32: bool = False, optimize: bool = False):
+                 force_fp32: bool = False, optimize: bool = False,
+                 controlnet_path: Optional[str] = None,
+                 controlnet_scale: float = CONTROLNET_CONFIG.DEFAULT_CONDITIONING_SCALE):
         self.model_path = model_path
         self.enable_dora = enable_dora
         self.adapter_strength = adapter_strength
         self.dora_start_step = dora_start_step
         self.force_fp32 = force_fp32
         self.optimize = optimize
-        self.pipe = None
+        self.controlnet_scale = controlnet_scale
+        self.pipe: Optional[Union[StableDiffusionXLPipeline, StableDiffusionXLControlNetPipeline]] = None
+        self._base_pipe: Optional[StableDiffusionXLPipeline] = None  # Store base pipeline for non-ControlNet generation
         self.is_initialized = False
         self._device = None
         self._cpu_offload_enabled = False
         self._dora_manager = None
+        self._controlnet_manager = None
         self._progress_manager = None
-        self._initialize(dora_path)
+        self._initialize(dora_path, controlnet_path)
 
-    def _initialize(self, dora_path: Optional[str]):
+    def _initialize(self, dora_path: Optional[str], controlnet_path: Optional[str] = None):
         """Initialize the diffusion pipeline."""
         try:
             with perf_monitor.time_section("engine_initialization"):
@@ -71,10 +78,19 @@ class NoobAIEngine:
                 self.pipe, self._cpu_offload_enabled = load_pipeline(
                     self.model_path, self._device, self.force_fp32, self.optimize
                 )
+                self._base_pipe = self.pipe  # Store reference to base pipeline
                 self.is_initialized = True
                 logger.info("Engine initialized")
 
                 self._dora_manager = DoRAManager(self.pipe, self._device)
+
+                # Initialize ControlNet manager
+                self._controlnet_manager = ControlNetManager(self._device, self.force_fp32)
+                if controlnet_path:
+                    if self._controlnet_manager.load_controlnet(controlnet_path):
+                        self._controlnet_manager.set_conditioning_scale(self.controlnet_scale)
+                        logger.info(f"ControlNet loaded with scale: {self.controlnet_scale}")
+
                 self._progress_manager = ProgressManager(self.pipe, self._device, self._dora_manager)
 
                 # Initialize prompt processing for long prompt support
@@ -174,6 +190,50 @@ class NoobAIEngine:
             'path': self.dora_path,
             'strength': self.adapter_strength if self.dora_loaded else 0.0,
             'start_step': self.dora_start_step
+        }
+
+    # ControlNet properties and methods
+    @property
+    def controlnet_loaded(self):
+        return self._controlnet_manager.controlnet_loaded if self._controlnet_manager else False
+
+    @property
+    def controlnet_path(self):
+        return self._controlnet_manager.controlnet_path if self._controlnet_manager else None
+
+    def load_controlnet(self, controlnet_path: str) -> bool:
+        """Load a ControlNet model."""
+        if self._controlnet_manager:
+            return self._controlnet_manager.load_controlnet(controlnet_path)
+        return False
+
+    def unload_controlnet(self) -> None:
+        """Unload the current ControlNet model."""
+        if self._controlnet_manager:
+            self._controlnet_manager.unload_controlnet()
+
+    def switch_controlnet(self, new_controlnet_path: str) -> bool:
+        """Switch to a different ControlNet model."""
+        if self._controlnet_manager:
+            return self._controlnet_manager.switch_controlnet(new_controlnet_path)
+        return False
+
+    def set_controlnet_scale(self, scale: float) -> float:
+        """Set ControlNet conditioning scale."""
+        self.controlnet_scale = scale
+        if self._controlnet_manager:
+            return self._controlnet_manager.set_conditioning_scale(scale)
+        return scale
+
+    def get_controlnet_info(self) -> Dict[str, Any]:
+        """Get ControlNet state information."""
+        if self._controlnet_manager:
+            return self._controlnet_manager.get_info()
+        return {
+            'loaded': False,
+            'path': None,
+            'conditioning_scale': 0.0,
+            'model_name': None
         }
 
     def count_prompt_tokens(self, prompt: str) -> Dict[str, Any]:
@@ -287,7 +347,9 @@ class NoobAIEngine:
         dora_start_step: Optional[int] = None,
         dora_toggle_mode: Optional[str] = None,
         dora_manual_schedule: Optional[str] = None,
-        progress_callback: Optional[Callable[[float, str], None]] = None
+        progress_callback: Optional[Callable[[float, str], None]] = None,
+        pose_image: Optional[Image.Image] = None,
+        controlnet_scale: Optional[float] = None
     ) -> Tuple[Image.Image, int, str]:
         if not self.is_initialized:
             raise EngineNotInitializedError("NoobAI engine is not initialized")
@@ -298,6 +360,8 @@ class NoobAIEngine:
             self.set_adapter_strength(adapter_strength)
         if dora_start_step is not None:
             self.set_dora_start_step(dora_start_step)
+        if controlnet_scale is not None:
+            self.set_controlnet_scale(controlnet_scale)
 
         if not isinstance(steps, int):
             try:
@@ -374,27 +438,81 @@ class NoobAIEngine:
                     negative_exceeds_limit=negative_exceeds
                 )
 
-                with torch.no_grad():
-                    result = self.pipe(
-                        prompt_embeds=prompt_embeds,
-                        negative_prompt_embeds=negative_prompt_embeds,
-                        pooled_prompt_embeds=pooled_prompt_embeds,
-                        negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
-                        width=width,
-                        height=height,
-                        num_inference_steps=steps,
-                        guidance_scale=cfg_scale,
-                        guidance_rescale=rescale_cfg,
-                        generator=generator,
-                        output_type="pil",
-                        return_dict=True,
-                        callback_on_step_end=callback_on_step_end,
-                        callback_on_step_end_tensor_inputs=["latents"]
+                # Prepare ControlNet conditioning if pose image provided
+                use_controlnet = (
+                    pose_image is not None and
+                    self._controlnet_manager is not None and
+                    self._controlnet_manager.controlnet_loaded
+                )
+
+                control_image = None
+                active_pipe = self.pipe
+
+                if use_controlnet:
+                    # Preprocess pose image
+                    control_image = self._controlnet_manager.preprocess_pose_image(
+                        pose_image, width, height
                     )
 
+                    if control_image is not None:
+                        # Create ControlNet pipeline for this generation
+                        active_pipe = create_controlnet_pipeline(
+                            self._base_pipe,
+                            self._controlnet_manager.controlnet,
+                            self._device
+                        )
+                        logger.info(f"Using ControlNet with scale: {self.controlnet_scale}")
+                    else:
+                        logger.warning("Pose image preprocessing failed, falling back to standard generation")
+                        use_controlnet = False
+
+                with torch.no_grad():
+                    if use_controlnet and control_image is not None:
+                        # ControlNet generation
+                        result = active_pipe(
+                            prompt_embeds=prompt_embeds,
+                            negative_prompt_embeds=negative_prompt_embeds,
+                            pooled_prompt_embeds=pooled_prompt_embeds,
+                            negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
+                            image=control_image,
+                            controlnet_conditioning_scale=self.controlnet_scale,
+                            width=width,
+                            height=height,
+                            num_inference_steps=steps,
+                            guidance_scale=cfg_scale,
+                            guidance_rescale=rescale_cfg,
+                            generator=generator,
+                            output_type="pil",
+                            return_dict=True,
+                            callback_on_step_end=callback_on_step_end,
+                            callback_on_step_end_tensor_inputs=["latents"]
+                        )
+                    else:
+                        # Standard generation
+                        result = self.pipe(
+                            prompt_embeds=prompt_embeds,
+                            negative_prompt_embeds=negative_prompt_embeds,
+                            pooled_prompt_embeds=pooled_prompt_embeds,
+                            negative_pooled_prompt_embeds=negative_pooled_prompt_embeds,
+                            width=width,
+                            height=height,
+                            num_inference_steps=steps,
+                            guidance_scale=cfg_scale,
+                            guidance_rescale=rescale_cfg,
+                            generator=generator,
+                            output_type="pil",
+                            return_dict=True,
+                            callback_on_step_end=callback_on_step_end,
+                            callback_on_step_end_tensor_inputs=["latents"]
+                        )
+
                 self._add_dora_info_to_result(info_parts, dora_toggle_mode, seed)
+                self._add_controlnet_info_to_result(info_parts, use_controlnet)
                 image = result.images[0]
-                metadata = self._create_image_metadata(prompt, negative_prompt, seed, width, height, steps, cfg_scale, rescale_cfg, dora_toggle_mode)
+                metadata = self._create_image_metadata(
+                    prompt, negative_prompt, seed, width, height, steps,
+                    cfg_scale, rescale_cfg, dora_toggle_mode, use_controlnet
+                )
                 image.info = metadata
 
                 return image, seed, "\n".join(info_parts)
@@ -440,7 +558,20 @@ class NoobAIEngine:
         elif self._dora_manager.dora_path:
             info_parts.append("⚠️ DoRA: Available but not loaded")
 
-    def _create_image_metadata(self, prompt: str, negative_prompt: str, seed: int, width: int, height: int, steps: int, cfg_scale: float, rescale_cfg: float, dora_toggle_mode: Optional[str]) -> Dict[str, str]:
+    def _add_controlnet_info_to_result(self, info_parts: list, use_controlnet: bool) -> None:
+        """Add ControlNet information to generation result."""
+        if use_controlnet and self._controlnet_manager and self._controlnet_manager.controlnet_loaded:
+            controlnet_name = os.path.basename(self._controlnet_manager.controlnet_path) if self._controlnet_manager.controlnet_path else "ControlNet"
+            info_parts.append(f"🎭 ControlNet: {controlnet_name} (scale: {self.controlnet_scale})")
+        elif self._controlnet_manager and self._controlnet_manager.controlnet_loaded:
+            controlnet_name = os.path.basename(self._controlnet_manager.controlnet_path) if self._controlnet_manager.controlnet_path else "ControlNet"
+            info_parts.append(f"⚪ ControlNet: {controlnet_name} (no pose image)")
+
+    def _create_image_metadata(
+        self, prompt: str, negative_prompt: str, seed: int, width: int, height: int,
+        steps: int, cfg_scale: float, rescale_cfg: float, dora_toggle_mode: Optional[str],
+        use_controlnet: bool = False
+    ) -> Dict[str, str]:
         metadata = {
             "prompt": prompt,
             "negative_prompt": negative_prompt,
@@ -466,6 +597,15 @@ class NoobAIEngine:
                 metadata["dora_start_step"] = "1"
                 metadata["dora_toggle_mode"] = "none"
 
+        # Add ControlNet metadata
+        if self._controlnet_manager and self._controlnet_manager.controlnet_loaded:
+            metadata["controlnet_used"] = str(use_controlnet).lower()
+            metadata["controlnet_path"] = os.path.basename(self._controlnet_manager.controlnet_path) if self._controlnet_manager.controlnet_path else "unknown"
+            if use_controlnet:
+                metadata["controlnet_scale"] = str(self.controlnet_scale)
+            else:
+                metadata["controlnet_scale"] = "0.0"
+
         return metadata
 
     def teardown_engine(self) -> None:
@@ -474,17 +614,30 @@ class NoobAIEngine:
             if self._dora_manager:
                 self._dora_manager.unload_adapter()
 
-            teardown_pipeline(self.pipe, self._device, self._cpu_offload_enabled, self._dora_manager.dora_loaded if self._dora_manager else False)
+            if self._controlnet_manager:
+                self._controlnet_manager.unload_controlnet()
+
+            teardown_pipeline(
+                self.pipe, self._device, self._cpu_offload_enabled,
+                self._dora_manager.dora_loaded if self._dora_manager else False,
+                self._controlnet_manager.controlnet_loaded if self._controlnet_manager else False
+            )
 
             try:
                 del self.pipe
             except Exception as e:
                 logger.warning(f"Error deleting pipeline: {e}")
 
+            try:
+                del self._base_pipe
+            except Exception as e:
+                logger.warning(f"Error deleting base pipeline: {e}")
+
         except Exception as e:
             logger.error(f"Error during engine teardown: {e}")
         finally:
             self.pipe = None
+            self._base_pipe = None
             self.is_initialized = False
 
     def clear_memory(self) -> None:

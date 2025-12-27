@@ -37,8 +37,19 @@ def clear_memory(device: str) -> None:
         logger.debug(f"Error during memory cleanup: {e}")
 
 
-def teardown_pipeline(pipe, device: str, cpu_offload_enabled: bool, dora_loaded: bool) -> None:
-    """Teardown pipeline with resource cleanup."""
+def teardown_pipeline(
+    pipe, device: str, cpu_offload_enabled: bool, dora_loaded: bool,
+    controlnet_loaded: bool = False
+) -> None:
+    """Teardown pipeline with resource cleanup.
+
+    Args:
+        pipe: The pipeline to teardown
+        device: Device type (cuda/mps/cpu)
+        cpu_offload_enabled: Whether CPU offloading is enabled
+        dora_loaded: Whether DoRA adapter is loaded
+        controlnet_loaded: Whether ControlNet is loaded
+    """
     try:
         if pipe and dora_loaded:
             try:
@@ -47,6 +58,15 @@ def teardown_pipeline(pipe, device: str, cpu_offload_enabled: bool, dora_loaded:
                     pipe.delete_adapters(["noobai_dora"])
             except Exception as e:
                 logger.warning(f"Error unloading DoRA adapters: {e}")
+
+        # Clean up ControlNet reference if present
+        if pipe and controlnet_loaded:
+            try:
+                if hasattr(pipe, 'controlnet'):
+                    pipe.controlnet = None
+                    logger.debug("ControlNet reference cleared from pipeline")
+            except Exception as e:
+                logger.warning(f"Error clearing ControlNet reference: {e}")
 
         if pipe:
             try:
@@ -70,7 +90,8 @@ def teardown_pipeline(pipe, device: str, cpu_offload_enabled: bool, dora_loaded:
             try:
                 components_to_delete = [
                     'unet', 'vae', 'text_encoder', 'text_encoder_2',
-                    'scheduler', 'tokenizer', 'tokenizer_2', 'image_processor'
+                    'scheduler', 'tokenizer', 'tokenizer_2', 'image_processor',
+                    'controlnet'  # Also cleanup ControlNet if present
                 ]
                 for component_name in components_to_delete:
                     if hasattr(pipe, component_name):

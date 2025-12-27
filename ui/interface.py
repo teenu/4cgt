@@ -5,7 +5,7 @@ import gradio as gr
 from config import (
     OFFICIAL_RESOLUTIONS, RECOMMENDED_RESOLUTIONS, OPTIMAL_SETTINGS,
     GEN_CONFIG, MODEL_CONFIG, DEFAULT_POSITIVE_PREFIX, DEFAULT_NEGATIVE_PROMPT,
-    OPTIMIZED_DORA_SETTINGS, OPTIMIZED_DORA_SCHEDULE_CSV
+    OPTIMIZED_DORA_SETTINGS, OPTIMIZED_DORA_SCHEDULE_CSV, CONTROLNET_CONFIG
 )
 from ui.engine_manager import (
     is_engine_ready, auto_initialize, get_dora_ui_state,
@@ -22,6 +22,10 @@ from ui.generation import (
 )
 from ui.styles import CSS_STYLES, JAVASCRIPT_HEAD
 from utils import parse_manual_dora_schedule
+from ui.controlnet_helpers import (
+    get_controlnet_choices, get_default_controlnet,
+    get_controlnet_path_from_display_name, refresh_controlnet_dropdown
+)
 
 
 def generate_dora_grid(num_steps: int, schedule_csv: str = "", show_locked_badge: bool = False) -> str:
@@ -341,6 +345,46 @@ def create_interface(model_path: str = None, force_fp32: bool = False, optimize:
                         with gr.Column(scale=1):
                             random_seed_btn = gr.Button("🎲 New Random Seed", size="lg")
 
+                # ControlNet settings
+                with gr.Group():
+                    gr.HTML("<h4>🎛️ ControlNet (Pose Control)</h4>")
+                    with gr.Row():
+                        enable_controlnet = gr.Checkbox(
+                            label="Enable ControlNet",
+                            value=False,
+                            info="Use pose image for anatomical control"
+                        )
+                        controlnet_refresh_btn = gr.Button("🔄 Refresh Models", size="sm")
+
+                    controlnet_choices = get_controlnet_choices()
+                    controlnet_default = get_default_controlnet()
+                    has_controlnet_models = controlnet_choices and controlnet_choices[0] != "None"
+
+                    controlnet_selection = gr.Dropdown(
+                        label="ControlNet Model",
+                        choices=controlnet_choices,
+                        value=controlnet_default,
+                        interactive=has_controlnet_models,
+                        visible=False,
+                        info="Select ControlNet model from /controlnet directory"
+                    )
+
+                    pose_image = gr.Image(
+                        label="Pose Image (OpenPose skeleton)",
+                        type="pil",
+                        visible=False
+                    )
+
+                    controlnet_scale = gr.Slider(
+                        label="ControlNet Scale",
+                        minimum=CONTROLNET_CONFIG.MIN_CONDITIONING_SCALE,
+                        maximum=CONTROLNET_CONFIG.MAX_CONDITIONING_SCALE,
+                        step=0.05,
+                        value=CONTROLNET_CONFIG.DEFAULT_CONDITIONING_SCALE,
+                        visible=False,
+                        info="Strength of pose conditioning (0.0 = no effect, 1.0 = full control)"
+                    )
+
                 # Generate button
                 generate_btn = gr.Button(
                     "🎨 Generate Image" if is_ready else "❌ Initialize Engine First",
@@ -396,9 +440,37 @@ def create_interface(model_path: str = None, force_fp32: bool = False, optimize:
             final_prompt, negative_prompt, resolution, cfg_scale, steps,
             rescale_cfg, seed, use_custom_resolution, custom_width,
             custom_height, auto_randomize_seed, adapter_strength, enable_dora,
-            dora_start_step, dora_toggle_mode, dora_manual_schedule_state
+            dora_start_step, dora_toggle_mode, dora_manual_schedule_state,
+            enable_controlnet, controlnet_selection, pose_image, controlnet_scale
         ]
         gen_outputs = [output_image, generation_info, seed]
+
+        # ControlNet UI handlers
+        def update_controlnet_ui(enable_val):
+            """Show/hide ControlNet options based on enable state."""
+            return (
+                gr.update(visible=enable_val),  # controlnet_selection
+                gr.update(visible=enable_val),  # pose_image
+                gr.update(visible=enable_val)   # controlnet_scale
+            )
+
+        enable_controlnet.change(
+            update_controlnet_ui,
+            inputs=[enable_controlnet],
+            outputs=[controlnet_selection, pose_image, controlnet_scale]
+        )
+
+        def refresh_controlnet_models():
+            """Refresh ControlNet model list."""
+            choices = refresh_controlnet_dropdown()
+            default = choices[0] if choices and choices[0] != "None" else "None"
+            has_models = choices and choices[0] != "None"
+            return gr.update(choices=choices, value=default, interactive=has_models)
+
+        controlnet_refresh_btn.click(
+            refresh_controlnet_models,
+            outputs=[controlnet_selection]
+        )
 
         def init_and_update(path, enable_dora_val, dora_path_val, dora_selection_val):
             """Initialize engine with UI feedback."""
