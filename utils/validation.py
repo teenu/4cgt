@@ -164,9 +164,6 @@ def validate_model_path(path: str) -> Tuple[bool, str]:
             if not is_allowed:
                 return False, f"Security: {reason}"
 
-            if reason:
-                logger.warning(f"Model path security warning: {reason}")
-
             return True, normalized_path
 
         else:
