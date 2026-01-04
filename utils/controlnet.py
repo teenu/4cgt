@@ -3,6 +3,7 @@
 import os
 import glob
 import time
+import threading
 from typing import List, Dict, Any, Optional, Tuple
 from PIL import Image
 from config import logger, CONTROLNET_SEARCH_DIRECTORIES, CONTROLNET_CONFIG
@@ -12,6 +13,7 @@ from utils.formatting import format_file_size
 _models_cache: List[Dict[str, Any]] = []
 _models_cache_time: float = 0.0
 _CACHE_TTL_SECONDS: float = 5.0
+_cache_lock: threading.Lock = threading.Lock()
 
 
 def detect_controlnet_precision(model_path: str) -> str:
@@ -103,6 +105,7 @@ def discover_controlnet_models(force_refresh: bool = False) -> List[Dict[str, An
     """Discover all ControlNet model files in search directories.
 
     Results are cached for 5 seconds to avoid redundant filesystem scans.
+    Thread-safe: uses a lock to prevent race conditions on cache access.
 
     Args:
         force_refresh: If True, bypass the cache and rescan directories.
@@ -112,9 +115,10 @@ def discover_controlnet_models(force_refresh: bool = False) -> List[Dict[str, An
     """
     global _models_cache, _models_cache_time
 
-    current_time = time.time()
-    if not force_refresh and _models_cache and (current_time - _models_cache_time) < _CACHE_TTL_SECONDS:
-        return _models_cache.copy()
+    with _cache_lock:
+        current_time = time.time()
+        if not force_refresh and _models_cache and (current_time - _models_cache_time) < _CACHE_TTL_SECONDS:
+            return _models_cache.copy()
 
     models = []
     seen_names = set()
@@ -160,9 +164,10 @@ def discover_controlnet_models(force_refresh: bool = False) -> List[Dict[str, An
 
     models.sort(key=lambda x: x['name'])
 
-    # Update cache
-    _models_cache = models.copy()
-    _models_cache_time = time.time()
+    # Update cache under lock to prevent race conditions
+    with _cache_lock:
+        _models_cache = models.copy()
+        _models_cache_time = time.time()
 
     return models
 

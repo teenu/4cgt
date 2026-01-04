@@ -147,7 +147,8 @@ class EmbeddingGenerator:
         """
         try:
             # Determine the device to use
-            device = self.pipe.device if hasattr(self.pipe, 'device') else 'cuda'
+            # Default to 'cpu' for compatibility with non-CUDA systems (MPS, CPU-only)
+            device = self.pipe.device if hasattr(self.pipe, 'device') else 'cpu'
             if hasattr(device, 'type'):
                 device = device.type
 
