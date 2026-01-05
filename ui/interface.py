@@ -5,7 +5,8 @@ import gradio as gr
 from config import (
     OFFICIAL_RESOLUTIONS, RECOMMENDED_RESOLUTIONS, OPTIMAL_SETTINGS,
     GEN_CONFIG, MODEL_CONFIG, DEFAULT_POSITIVE_PREFIX, DEFAULT_NEGATIVE_PROMPT,
-    OPTIMIZED_DORA_SETTINGS, OPTIMIZED_DORA_SCHEDULE_CSV, CONTROLNET_CONFIG
+    OPTIMIZED_DORA_SETTINGS, OPTIMIZED_DORA_SCHEDULE_CSV, CONTROLNET_CONFIG,
+    DORA_NONE_MODE_SETTINGS
 )
 from ui.engine_manager import (
     is_engine_ready, auto_initialize, get_dora_ui_state,
@@ -504,16 +505,22 @@ def create_interface(model_path: str = None, force_fp32: bool = False, optimize:
         dora_refresh_btn.click(refresh_dora_adapters, outputs=[enable_dora, dora_selection])
 
         # DoRA UI updates - also reset toggle mode and hide grid when disabling
+        # When DoRA is enabled, apply DoRA None mode optimal settings
         def update_dora_ui(enable_val):
             if enable_val:
+                # Apply DoRA None mode settings when enabling DoRA
+                none_opt = DORA_NONE_MODE_SETTINGS
                 return (
-                    gr.update(visible=True),   # adapter_strength
+                    gr.update(visible=True, value=none_opt['adapter_strength']),   # adapter_strength = 1.0
                     gr.update(visible=True),   # adapter_status
-                    gr.update(visible=True),   # dora_start_step
+                    gr.update(visible=True, value=none_opt['dora_start_step']),    # dora_start_step = 3
                     gr.update(visible=True),   # dora_start_step_status
                     gr.update(visible=True),   # dora_toggle_mode
                     gr.update(visible=False),  # dora_manual_grid (hidden until mode selected)
-                    gr.update(visible=False)   # dora_manual_schedule_state
+                    gr.update(visible=False),  # dora_manual_schedule_state
+                    gr.update(value=none_opt['cfg_scale']),      # cfg_scale = 5.5261
+                    gr.update(value=none_opt['rescale_cfg']),    # rescale_cfg = 0.6092
+                    gr.update(value=none_opt['steps'])           # steps = 42
                 )
             else:
                 return (
@@ -523,14 +530,18 @@ def create_interface(model_path: str = None, force_fp32: bool = False, optimize:
                     gr.update(visible=False),
                     gr.update(visible=False, value=None),  # Reset toggle mode to None
                     gr.update(visible=False),
-                    gr.update(visible=False)
+                    gr.update(visible=False),
+                    gr.update(),  # Don't change cfg_scale when disabling
+                    gr.update(),  # Don't change rescale_cfg when disabling
+                    gr.update()   # Don't change steps when disabling
                 )
 
         enable_dora.change(
             update_dora_ui,
             inputs=[enable_dora],
             outputs=[adapter_strength, adapter_status, dora_start_step, dora_start_step_status,
-                     dora_toggle_mode, dora_manual_grid, dora_manual_schedule_state]
+                     dora_toggle_mode, dora_manual_grid, dora_manual_schedule_state,
+                     cfg_scale, rescale_cfg, steps]
         )
 
         # DoRA toggle mode changes - comprehensive handler with state management
@@ -568,13 +579,17 @@ def create_interface(model_path: str = None, force_fp32: bool = False, optimize:
                     gr.update(), gr.update(), gr.update(), gr.update(),
                     False
                 )
-            else:  # None
+            else:  # None - apply DoRA None mode optimal settings
+                none_opt = DORA_NONE_MODE_SETTINGS
                 return (
-                    gr.update(visible=False),
-                    gr.update(visible=False),
-                    gr.update(interactive=True),                         # enabled for None
-                    gr.update(), gr.update(), gr.update(), gr.update(),
-                    False
+                    gr.update(visible=False),                            # dora_manual_grid
+                    gr.update(visible=False),                            # dora_manual_schedule_state
+                    gr.update(interactive=True, value=none_opt['dora_start_step']),  # dora_start_step enabled, set to 3
+                    gr.update(value=none_opt['cfg_scale']),              # cfg_scale = 5.5261
+                    gr.update(value=none_opt['rescale_cfg']),            # rescale_cfg = 0.6092
+                    gr.update(value=none_opt['adapter_strength']),       # adapter_strength = 1.0
+                    gr.update(value=none_opt['steps']),                  # steps = 42
+                    True                                                 # is_programmatic_change (prevents circular triggers)
                 )
 
         dora_toggle_mode.change(

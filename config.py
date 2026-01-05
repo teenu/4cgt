@@ -192,9 +192,25 @@ OPTIMIZED_DORA_SETTINGS = {
 }
 OPTIMIZED_DORA_SCHEDULE_CSV = ", ".join(str(x) for x in OPTIMIZED_DORA_SETTINGS['schedule'])
 
+# DoRA None mode settings (default when DoRA enabled, toggle mode is None)
+# These settings provide optimal results for anatomical accuracy with v-prediction models.
+# Mathematical basis:
+# - CFG 5.5261: Lower CFG optimal for v-prediction due to zero terminal SNR interaction
+# - Rescale 0.6092: Compensates for overexposure while preserving prompt adherence
+# - DoRA start step 3: Preserves semantic phase (steps 0-2) for structural formation
+# - Steps 42: Ensures full convergence with adequate adapter influence window
+DORA_NONE_MODE_SETTINGS = {
+    'steps': 42,
+    'cfg_scale': 5.5261,
+    'rescale_cfg': 0.6092,
+    'adapter_strength': 1.0,
+    'dora_start_step': 3,
+}
+
 # Optimal parameter ranges for generation info warnings
-OPTIMAL_STEPS_RANGE = (32, 40)
-OPTIMAL_CFG_RANGE = (3.5, 5.5)
+# Extended ranges to accommodate both standard and DoRA None mode settings
+OPTIMAL_STEPS_RANGE = (32, 45)
+OPTIMAL_CFG_RANGE = (3.5, 6.0)
 
 # Default prompts
 DEFAULT_NEGATIVE_PROMPT = "worst aesthetic, worst quality, lowres, scan artifacts, ai-generated, old, 4koma, multiple views, furry, anthro, watermark, logo, signature, artist name, bad hands, extra digits, fewer digits"

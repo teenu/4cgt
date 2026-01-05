@@ -94,20 +94,22 @@ def create_status_updater(param_type: str):
             value = float(value)
         except (TypeError, ValueError):
             return '<div style="color: red;">❌ Invalid value</div>'
-        if 3.5 <= value <= 5.5:
-            return '<div style="color: green;">✅ Optimal range (3.5-5.5)</div>'
+        # Optimal range extended to 6.0 to include DoRA None mode setting (5.5261)
+        if 3.5 <= value <= 6.0:
+            return '<div style="color: green;">✅ Optimal range (3.5-6.0)</div>'
         else:
-            return '<div style="color: orange;">⚠️ Outside optimal range (3.5-5.5)</div>'
+            return '<div style="color: orange;">⚠️ Outside optimal range (3.5-6.0)</div>'
 
     def update_steps_status(value):
         try:
             value = int(value)
         except (TypeError, ValueError):
             return '<div style="color: red;">❌ Invalid value</div>'
-        if 32 <= value <= 40:
-            return '<div style="color: green;">✅ Optimal range (32-40)</div>'
+        # Optimal range extended to 45 to include DoRA None mode setting (42)
+        if 32 <= value <= 45:
+            return '<div style="color: green;">✅ Optimal range (32-45)</div>'
         elif value >= 10:
-            return '<div style="color: orange;">⚠️ Below optimal range (32-40)</div>'
+            return '<div style="color: orange;">⚠️ Below optimal range (32-45)</div>'
         else:
             return '<div style="color: red;">❌ Too low for quality results</div>'
 
@@ -116,8 +118,9 @@ def create_status_updater(param_type: str):
             value = float(value)
         except (TypeError, ValueError):
             return '<div style="color: red;">❌ Invalid value</div>'
-        if abs(value - 0.7) < 0.1:
-            return '<div style="color: green;">✅ Optimal (around 0.7)</div>'
+        # Optimal range includes both ~0.7 (standard) and ~0.6 (DoRA None mode: 0.6092)
+        if 0.55 <= value <= 0.75:
+            return '<div style="color: green;">✅ Optimal range (0.55-0.75)</div>'
         else:
             return '<div style="color: blue;">📊 Valid</div>'
 
@@ -140,8 +143,11 @@ def create_status_updater(param_type: str):
             value = int(value)
         except (TypeError, ValueError):
             return '<div style="color: red;">❌ Invalid value</div>'
-        if value == 0:
-            return '<div style="color: green;">✅ Start at step 0 (first step)</div>'
+        if value == 3:
+            # Step 3 is optimal: skips semantic formation phase (steps 0-2)
+            return '<div style="color: green;">✅ Optimal (step 3) - preserves structural formation</div>'
+        elif value == 0:
+            return '<div style="color: blue;">🚀 Start at step 0 (first step)</div>'
         elif value <= 5:
             return '<div style="color: blue;">🚀 Early activation (step {})'.format(value) + '</div>'
         elif value <= 15:
