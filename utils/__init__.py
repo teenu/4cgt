@@ -34,7 +34,8 @@ from utils.schedules import parse_manual_dora_schedule
 from utils.sharp_integration import (
     check_sharp_available,
     get_sharp_checkpoint_path,
-    run_sharp_inference
+    run_sharp_inference,
+    convert_ply_to_splat
 )
 
 CSV_PATHS = get_safe_csv_paths()
@@ -66,5 +67,6 @@ __all__ = [
     'check_sharp_available',
     'get_sharp_checkpoint_path',
     'run_sharp_inference',
+    'convert_ply_to_splat',
     'CSV_PATHS'
 ]
