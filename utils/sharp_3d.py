@@ -142,6 +142,41 @@ def find_sharp_checkpoint(checkpoint_path: Optional[str] = None) -> Optional[str
     return None
 
 
+def _reencode_video_hq(video_path: str) -> None:
+    """Re-encode an mp4 in-place with CRF 18 for higher visual quality.
+
+    Sharp's VideoWriter uses imageio's default (CRF 23), which introduces
+    visible softness.  CRF 18 is visually lossless for typical rendered content.
+    Uses the ffmpeg bundled with imageio-ffmpeg so no system install is needed.
+    Silently skips if re-encoding fails.
+    """
+    try:
+        import imageio_ffmpeg
+        ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    except ImportError:
+        return
+
+    tmp = video_path + ".tmp.mp4"
+    try:
+        result = subprocess.run(
+            [ffmpeg, "-i", video_path,
+             "-vcodec", "libx264", "-crf", "18", "-preset", "slow",
+             "-y", tmp],
+            capture_output=True,
+            timeout=120,
+        )
+        if result.returncode == 0 and os.path.isfile(tmp):
+            os.replace(tmp, video_path)
+            logger.debug("Re-encoded video at CRF 18: %s", video_path)
+        else:
+            logger.warning("Video re-encode failed (exit %d); keeping original", result.returncode)
+    except Exception as exc:
+        logger.warning("Video re-encode skipped: %s", exc)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
 def convert_to_3d(
     image_path: str,
     output_name: str,
@@ -241,12 +276,17 @@ def convert_to_3d(
 
     ply_path = str(ply_files[-1])
 
-    # Locate rendered video (if requested)
+    # Locate rendered video (if requested).
+    # Sharp also writes a .depth.mp4 alongside the colour video — exclude it.
     video_path = None
     if render:
-        mp4_files = sorted(Path(gaussians_dir).glob("**/*.mp4"))
+        mp4_files = [
+            p for p in sorted(Path(gaussians_dir).glob("**/*.mp4"))
+            if ".depth." not in p.name
+        ]
         if mp4_files:
             video_path = str(mp4_files[-1])
+            _reencode_video_hq(video_path)
         else:
             logger.warning("Sharp render requested but no .mp4 found in %s", gaussians_dir)
 
