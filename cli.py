@@ -13,7 +13,8 @@ from utils import (
     validate_dora_path, detect_adapter_precision, get_user_friendly_error,
     calculate_image_hash, find_dora_path, parse_manual_dora_schedule,
     discover_controlnet_models, get_controlnet_by_name, find_controlnet_path,
-    validate_controlnet_path, detect_controlnet_precision
+    validate_controlnet_path, detect_controlnet_precision,
+    is_sharp_installed, convert_to_3d
 )
 from ui.engine_manager import find_model_path
 from ui.validation import validate_parameters
@@ -327,6 +328,30 @@ def cli_generate(args):
             print("\nGeneration Info:")
             print(info)
 
+        # Optional Sharp Image-to-3D conversion
+        if getattr(args, 'to_3d', False):
+            if not is_sharp_installed():
+                print("❌ Sharp not installed. Run: pip install git+https://github.com/apple/ml-sharp.git --no-deps")
+                return 1
+
+            print("🎲 Converting image to 3D Gaussian Splat (Sharp)...")
+            output_name = os.path.splitext(os.path.basename(saved_path))[0]
+            result_3d = convert_to_3d(
+                image_path=saved_path,
+                output_name=output_name,
+                device="cuda" if not args.force_fp32 else "cpu",
+                render=getattr(args, 'to_3d_render', False),
+                checkpoint_path=getattr(args, 'sharp_checkpoint', None),
+            )
+
+            if result_3d["error"]:
+                print(f"❌ 3D conversion failed: {result_3d['error']}")
+                return 1
+
+            print(f"✅ 3D output: {result_3d['ply_path']} ({result_3d['elapsed']:.2f}s)")
+            if result_3d["video_path"]:
+                print(f"🎬 Render: {result_3d['video_path']}")
+
         return 0
 
     except Exception as e:
@@ -380,6 +405,10 @@ def parse_args():
     %(prog)s --list-controlnets                                          # List available ControlNets
     %(prog)s --cli --prompt "1girl" --pose-image pose.png                # Use pose for anatomy control
     %(prog)s --cli --prompt "1girl" --pose-image pose.png --controlnet-scale 0.8
+
+  Image-to-3D (Apple Sharp):
+    %(prog)s --cli --prompt "1girl" --to-3d                              # Generate image then convert to 3D (.ply)
+    %(prog)s --cli --prompt "1girl" --to-3d --to-3d-render              # Also render camera-trajectory video
 """
     )
 
@@ -425,6 +454,14 @@ def parse_args():
     cli_group.add_argument("--dora-manual-schedule", type=str,
                           help="Manual DoRA schedule CSV (e.g., '1,0,0,1')")
     cli_group.add_argument("--verbose", action="store_true", help="Show detailed generation info")
+
+    threed_group = parser.add_argument_group("Image-to-3D Options (Apple Sharp)")
+    threed_group.add_argument("--to-3d", action="store_true",
+                              help="Convert the generated image to a 3D Gaussian Splat (.ply) using Apple Sharp")
+    threed_group.add_argument("--to-3d-render", action="store_true",
+                              help="Also render a camera-trajectory video from the 3D output (CUDA only)")
+    threed_group.add_argument("--sharp-checkpoint", type=str,
+                              help="Path to Sharp .pt checkpoint (auto-downloaded if omitted)")
 
     precision_group = parser.add_argument_group("Precision and Performance Options")
     precision_group.add_argument("--force-fp32", action="store_true",

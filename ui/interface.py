@@ -27,6 +27,7 @@ from ui.controlnet_helpers import (
     get_controlnet_choices, get_default_controlnet,
     get_controlnet_path_from_display_name, refresh_controlnet_dropdown
 )
+from utils.sharp_3d import is_sharp_installed, convert_to_3d
 
 
 def generate_dora_grid(num_steps: int, schedule_csv: str = "", show_locked_badge: bool = False) -> str:
@@ -414,6 +415,44 @@ def create_interface(model_path: str = None, force_fp32: bool = False, optimize:
                     output_image = gr.Image(type="filepath", interactive=False, height=400, format="png")
                     generation_info = gr.Textbox(label="Generation Info", lines=9, interactive=False)
 
+                _sharp_available = is_sharp_installed()
+                with gr.Group(visible=_sharp_available):
+                    gr.HTML("<h3>🎲 Image to 3D (Apple Sharp)</h3>")
+                    with gr.Row():
+                        to_3d_render = gr.Checkbox(
+                            label="Render video",
+                            value=False,
+                            info="Render a camera-trajectory .mp4 after conversion (CUDA only)"
+                        )
+                        to_3d_btn = gr.Button(
+                            "Convert to 3D",
+                            variant="secondary",
+                            interactive=False,  # enabled once an image is generated
+                        )
+                    to_3d_status = gr.Textbox(
+                        label="3D Status",
+                        value="Generate an image first, then click Convert to 3D." if _sharp_available
+                              else "Sharp not installed.",
+                        interactive=False,
+                        lines=2,
+                    )
+                    to_3d_ply = gr.File(
+                        label="3D Gaussian Splat (.ply)",
+                        visible=False,
+                        interactive=False,
+                    )
+                    to_3d_video = gr.Video(
+                        label="Rendered Video",
+                        visible=False,
+                        interactive=False,
+                    )
+
+                if not _sharp_available:
+                    gr.HTML(
+                        "<div style='color:#888; font-size:0.85em;'>Sharp not installed — "
+                        "<code>pip install git+https://github.com/apple/ml-sharp.git --no-deps</code></div>"
+                    )
+
         with gr.Row():
             reset_btn = gr.Button("🔄 Reset to Optimal", variant="secondary", size="sm")
 
@@ -717,9 +756,51 @@ def create_interface(model_path: str = None, force_fp32: bool = False, optimize:
             generate_image_with_progress,
             inputs=gen_inputs,
             outputs=gen_outputs
-        ).then(finish_generation, outputs=[interrupt_btn, generate_btn])
+        ).then(finish_generation, outputs=[interrupt_btn, generate_btn]).then(
+            # Enable the Convert to 3D button once an image exists
+            lambda img: gr.update(interactive=img is not None),
+            inputs=[output_image],
+            outputs=[to_3d_btn],
+        )
 
         interrupt_btn.click(interrupt_generation, outputs=[interrupt_btn, generate_btn])
+
+        # Convert to 3D
+        def _run_sharp(image_path, render_video):
+            if not image_path:
+                return (
+                    "No image to convert.",
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                )
+            import os
+            output_name = os.path.splitext(os.path.basename(image_path))[0]
+            result = convert_to_3d(
+                image_path=image_path,
+                output_name=output_name,
+                device="cuda",
+                render=render_video,
+            )
+            if result["error"]:
+                return (
+                    f"Failed: {result['error']}",
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                )
+            status = f"Done in {result['elapsed']:.2f}s — {result['ply_path']}"
+            ply_update = gr.update(value=result["ply_path"], visible=True)
+            video_update = (
+                gr.update(value=result["video_path"], visible=True)
+                if result["video_path"]
+                else gr.update(visible=False)
+            )
+            return status, ply_update, video_update
+
+        to_3d_btn.click(
+            _run_sharp,
+            inputs=[output_image, to_3d_render],
+            outputs=[to_3d_status, to_3d_ply, to_3d_video],
+        )
 
         # Utility handlers
         random_seed_btn.click(lambda: str(random.randint(0, 2**32-1)), outputs=[seed])

@@ -74,6 +74,14 @@ pydantic>=2.0.0,<2.11.0
 #   pip install sageattention
 # sageattention>=2.0.0  # uncomment if desired
 
+# Apple Sharp - Image-to-3D Gaussian Splat conversion
+# Converts a generated image to a .ply 3D Gaussian Splat in under 1 second.
+# Adds a "Convert to 3D" button to the GUI and --to-3d flag to the CLI.
+# Install separately (use --no-deps to preserve existing PyTorch version):
+#   pip install "git+https://github.com/apple/ml-sharp.git" --no-deps
+#   pip install gsplat timm imageio imageio-ffmpeg scipy matplotlib plyfile pillow-heif
+# sharp  # uncomment if desired
+
 # ============================================================================
 # VERSION CONSTRAINTS (IMPORTANT - DO NOT REMOVE)
 # ============================================================================
