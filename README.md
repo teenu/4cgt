@@ -119,52 +119,38 @@ If you encounter "path too long" errors during installation:
 
 Alternatively, use a shorter installation path like `C:\noobai\` instead of deep nested folders.
 
-### 3. Download Model File
+### 3. Download Assets
 
-**REQUIRED - Choose ONE of these formats:**
+All assets (model, DoRA adapters, ControlNet, style data) are hosted on Hugging Face:
 
-**Option 1: BF16 Single File (Recommended)**
-- `NoobAI-XL-Vpred-v1.0.safetensors` (7GB)
-- Auto-upcast to FP32 on platforms without BF16 support
+```bash
+pip install huggingface-hub
+huggingface-cli download epigene/4cgt --local-dir assets
+```
 
-**Option 2: FP32 Pre-converted Directory**
-- `NoobAI-XL-Vpred-v1.0-FP32/` (13GB directory)
-- Pre-converted for maximum determinism
+Then move them into place:
 
-**NOT Supported:**
+```bash
+mv assets/NoobAI-XL-Vpred-v1.0.safetensors .
+mv assets/dora/* dora/
+mv assets/controlnet/* controlnet/
+mv assets/style/* style/
+mv assets/poses/* poses/
+rm -rf assets
+```
+
+| Asset | Size | Required? |
+|-------|------|-----------|
+| `NoobAI-XL-Vpred-v1.0.safetensors` | 6.7 GB | Yes |
+| `controlnet/openpose_fp32.safetensors` | 4.7 GB | Optional (pose control) |
+| `dora/*.safetensors` | 108 MB | Optional (anatomical accuracy) |
+| `style/*.csv` | 109 MB | Optional (character/artist search) |
+| `poses/*.png` | 140 KB | Optional (example poses) |
+
+**Model format notes:**
+- BF16 model auto-upcasts to FP32 on platforms without BF16 support
 - FP16 models are **rejected** (lossy quantization)
-
-The application will automatically detect the model in:
-- Repository root directory
-- `./models/` subdirectory
-- `~/Downloads/`
-- `~/Models/`
-
-### 4. Download Style Data (Required for GUI)
-
-The `style/` directory contains character and artist databases for autocomplete search:
-
-**Download the following CSV files and place in `style/` directory:**
-- `danbooru_character_webui.csv`
-- `danbooru_artist_webui.csv`
-- `e621_character_webui.csv`
-- `e621_artist_webui.csv`
-
-**Total size:** ~110MB
-
-**Without style data:** Character/artist search features will be unavailable in the GUI.
-
-### 5. Download DoRA Adapters (Optional)
-
-DoRA (Weight-Decomposed Low-Rank Adaptation) adapters provide image stabilization:
-
-**Download and place in `dora/` directory:**
-- `noobai_vp10_stabilizer_v0.271.safetensors` (44MB)
-- `noobai_vp10_stabilizer_v0.280a.safetensors` (64MB)
-
-**Note**: DoRA adapters in any precision format are automatically converted to match the pipeline precision.
-
-**Without DoRA adapters:** DoRA functionality will be unavailable but the application will run normally.
+- The app auto-detects the model in the repo root, `./models/`, `~/Downloads/`, or `~/Models/`
 
 ## Usage
 
