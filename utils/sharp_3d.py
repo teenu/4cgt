@@ -169,7 +169,9 @@ def _reencode_video_hq(video_path: str) -> None:
             os.replace(tmp, video_path)
             logger.debug("Re-encoded video at CRF 18: %s", video_path)
         else:
-            logger.warning("Video re-encode failed (exit %d); keeping original", result.returncode)
+            stderr_msg = result.stderr[-500:].decode(errors="replace") if result.stderr else ""
+            logger.warning("Video re-encode failed (exit %d): %s; keeping original",
+                           result.returncode, stderr_msg)
     except Exception as exc:
         logger.warning("Video re-encode skipped: %s", exc)
     finally:
