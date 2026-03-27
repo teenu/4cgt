@@ -31,6 +31,68 @@ _CHECKPOINT_CACHE = os.path.expanduser(
 )
 
 
+def _build_render_env() -> dict:
+    """Build subprocess env with CUDA_HOME and PATH set for gsplat JIT compilation.
+
+    gsplat compiles CUDA kernels on the first --render call.  This requires:
+      1. CUDA_HOME whose include/ has cuda_runtime.h + crt/host_config.h + thrust/
+      2. cicc (nvcc internal tool) on PATH
+
+    In conda environments CUDA components are spread across bin/, nvvm/bin/,
+    targets/<arch>/include/, and pip nvidia packages — the defaults torch infers
+    are often incomplete.  We locate each piece and fix the env here.
+    """
+    env = os.environ.copy()
+
+    nvcc = shutil.which("nvcc") or ""
+    if not nvcc:
+        return env
+
+    nvcc_dir = os.path.dirname(nvcc)          # e.g. ~/miniconda3/bin
+    conda_root = os.path.normpath(os.path.join(nvcc_dir, ".."))
+
+    # --- 1. Put cicc on PATH so nvcc can call it ---
+    cicc_path = os.path.normpath(os.path.join(nvcc_dir, "..", "nvvm", "bin", "cicc"))
+    if os.path.isfile(cicc_path):
+        cicc_dir = os.path.dirname(cicc_path)
+        path = env.get("PATH", "")
+        if cicc_dir not in path.split(os.pathsep):
+            env["PATH"] = cicc_dir + os.pathsep + path
+
+    # --- 2. Find CUDA include with cuda_runtime.h + crt/ + thrust/ ---
+    cuda_home = env.get("CUDA_HOME", "")
+    if cuda_home:
+        inc = os.path.join(cuda_home, "include")
+        if (os.path.isfile(os.path.join(inc, "cuda_runtime.h")) and
+                os.path.isfile(os.path.join(inc, "crt", "host_config.h"))):
+            return env  # caller-supplied CUDA_HOME is already valid
+
+    # Prefer conda's targets/<arch>/include/ — it has the full header tree.
+    for arch in ("x86_64-linux", "sbsa-linux", "aarch64-linux"):
+        targets_inc = os.path.join(conda_root, "targets", arch, "include")
+        if not os.path.isfile(os.path.join(targets_inc, "cuda_runtime.h")):
+            continue
+        if not os.path.isfile(os.path.join(targets_inc, "crt", "host_config.h")):
+            continue
+        # Ensure thrust/ is accessible (newer CUDA moves it under cccl/).
+        thrust_link = os.path.join(targets_inc, "thrust")
+        if not os.path.exists(thrust_link):
+            cccl_thrust = os.path.join(targets_inc, "cccl", "thrust")
+            if os.path.isdir(cccl_thrust):
+                try:
+                    os.symlink(cccl_thrust, thrust_link)
+                except OSError:
+                    pass
+        targets_root = os.path.normpath(os.path.join(targets_inc, ".."))
+        env["CUDA_HOME"] = targets_root
+        logger.debug("Sharp render: CUDA_HOME=%s", targets_root)
+        return env
+
+    logger.warning("Sharp render: could not locate a complete CUDA include tree; "
+                   "render may fail to compile gsplat kernels")
+    return env
+
+
 def is_sharp_installed() -> bool:
     """Return True if Sharp is importable and its CLI is present."""
     try:
@@ -130,12 +192,15 @@ def convert_to_3d(
         logger.info("Sharp predict: %s", " ".join(cmd))
         t0 = time.perf_counter()
 
+        run_env = _build_render_env() if render else None
+
         try:
             proc = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 timeout=180,
+                env=run_env,
             )
         except subprocess.TimeoutExpired:
             return {"error": "Sharp timed out after 180 seconds.",
@@ -147,7 +212,12 @@ def convert_to_3d(
         elapsed = time.perf_counter() - t0
 
         if proc.returncode != 0:
-            stderr_tail = proc.stderr[-800:] if proc.stderr else "(no stderr)"
+            if proc.stderr:
+                head = proc.stderr[:3000]
+                tail = proc.stderr[-500:] if len(proc.stderr) > 3500 else ""
+                stderr_tail = head + ("\n...\n" + tail if tail else "")
+            else:
+                stderr_tail = "(no stderr)"
             logger.error("Sharp exited %d:\n%s", proc.returncode, stderr_tail)
             return {"error": f"Sharp failed (exit {proc.returncode}): {stderr_tail}",
                     "ply_path": None, "video_path": None, "elapsed": elapsed}
