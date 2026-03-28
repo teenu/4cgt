@@ -2,10 +2,6 @@
 import * as i18n from './i18n.js';
 
 const HF = 'https://huggingface.co/epigene/4cgt/resolve/main/showcase/';
-const HERO_IMAGES = [
-  'frieren_beach.png','lucy_cyberpunk.png','miku.png','makima.png',
-  'asuka.png','2b_ruins.png','zero_two.png','yor.png'
-];
 
 /* Router */
 export function navigate(hash) {
@@ -48,9 +44,25 @@ function initAgeGate() {
 }
 
 /* Hero slideshow */
-function initHero() {
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+async function initHero() {
   const bg = document.getElementById('hero-bg');
-  HERO_IMAGES.forEach((img, i) => {
+  let images;
+  try {
+    const res = await fetch('data/gallery.json');
+    const gallery = await res.json();
+    images = shuffle(gallery.map(e => e.image));
+  } catch {
+    images = ['frieren_beach.png'];
+  }
+  images.forEach((img, i) => {
     const div = document.createElement('div');
     div.className = 'hero-slide' + (i === 0 ? ' active' : '');
     div.style.backgroundImage = `url('${HF}${img}')`;
@@ -58,11 +70,13 @@ function initHero() {
   });
   const slides = bg.querySelectorAll('.hero-slide');
   let idx = 0;
-  setInterval(() => {
-    slides[idx].classList.remove('active');
-    idx = (idx + 1) % slides.length;
-    slides[idx].classList.add('active');
-  }, 6000);
+  if (slides.length > 1) {
+    setInterval(() => {
+      slides[idx].classList.remove('active');
+      idx = (idx + 1) % slides.length;
+      slides[idx].classList.add('active');
+    }, 6000);
+  }
 
   const hint = document.querySelector('.scroll-hint');
   const nav = document.querySelector('.nav');
@@ -98,7 +112,7 @@ function initNav() {
 export async function init() {
   await i18n.init();
   initAgeGate();
-  initHero();
+  await initHero();
   initNav();
   window.addEventListener('hashchange', handleRoute);
   handleRoute();
