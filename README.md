@@ -9,16 +9,16 @@
 Anime image generation that nails anatomy, follows your prompt, and gives you the same pixel-perfect result on any machine. Every time.
 
 <p align="center">
-<img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/showcase_1.png" width="24%" />
-<img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/showcase_2.png" width="24%" />
-<img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/showcase_3.png" width="24%" />
+<img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/frieren_beach.png" width="24%" />
+<img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/lucy_cyberpunk.png" width="24%" />
+<img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/miku.png" width="24%" />
 <img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/makima.png" width="24%" />
 </p>
 <p align="center">
-<img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/yor_night.png" width="24%" />
-<img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/violet_evergarden.png" width="24%" />
-<img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/saber_alter.png" width="24%" />
-<img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/miko_autumn.png" width="24%" />
+<img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/asuka.png" width="24%" />
+<img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/2b_ruins.png" width="24%" />
+<img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/zero_two.png" width="24%" />
+<img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/yor.png" width="24%" />
 </p>
 <p align="center"><sub>All generated with 4CGT. DoRA v0.271. 42 steps. Same seed = same image on any machine.</sub></p>
 
