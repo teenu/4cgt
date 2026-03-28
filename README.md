@@ -57,14 +57,35 @@ python main.py --cli \
 
 ## Assets
 
-4CGT requires third-party model assets. Download from their original sources:
+4CGT requires third-party model assets. Download from their original sources and verify MD5 hashes to ensure quality parity.
 
-| Asset | Source | Required |
-|-------|--------|----------|
-| NoobAI XL V-Pred 1.0 (BF16, 6.7 GB) | [Laxhar/noobai-XL-Vpred-1.0](https://huggingface.co/Laxhar/noobai-XL-Vpred-1.0) | Yes — place in repo root |
-| DoRA stabilizers (v0.271 recommended) | [Civitai: reakaakasky](https://civitai.com/models/971952) | Yes — place in `dora/` |
-| Style CSVs (Danbooru + e621) | [Laxhar/noob-wiki](https://huggingface.co/datasets/Laxhar/noob-wiki) | Yes — place in `style/` |
-| ControlNet OpenPose SDXL | [xinsir/controlnet-openpose-sdxl-1.0](https://huggingface.co/xinsir/controlnet-openpose-sdxl-1.0) | Optional — place in `controlnet/` |
+### Base model — place in repo root
+
+| Filename | Size | MD5 | Source |
+|----------|------|-----|--------|
+| `NoobAI-XL-Vpred-v1.0.safetensors` | 6.6 GB | `a0815ef81f4a91a830dcc35dc8e06ac1` | [Laxhar/noobai-XL-Vpred-1.0](https://huggingface.co/Laxhar/noobai-XL-Vpred-1.0) |
+
+### DoRA adapters — place in `dora/`
+
+| Filename | Size | MD5 | Source |
+|----------|------|-----|--------|
+| `noobai_vp10_stabilizer_v0.271_fp16.safetensors` | 43.7 MB | `0ae1e1a7e4e2e1a9edd22da1dfd78f7e` | [Civitai: reakaakasky](https://civitai.com/models/971952) |
+| `noobai_vp10_stabilizer_v0.280a_fp16.safetensors` | 63.6 MB | `ee115dbd7b0a3a299c7e3c3ecb4fab7d` | [Civitai: reakaakasky](https://civitai.com/models/971952) |
+
+### Style CSVs — place in `style/`
+
+| Filename | Size | MD5 | Source |
+|----------|------|-----|--------|
+| `danbooru_character_webui.csv` | 37.2 MB | `805800601b9b4b0d48e865a9f9c2adb8` | [Laxhar/noob-wiki](https://huggingface.co/datasets/Laxhar/noob-wiki) |
+| `danbooru_artist_webui.csv` | 31.3 MB | `ed162a26fcf0ebaa3dccd7633fc3891c` | [Laxhar/noob-wiki](https://huggingface.co/datasets/Laxhar/noob-wiki) |
+| `e621_character_webui.csv` | 27.9 MB | `ca90a808278db5245af741d5bef21002` | [Laxhar/noob-wiki](https://huggingface.co/datasets/Laxhar/noob-wiki) |
+| `e621_artist_webui.csv` | 12.5 MB | `ce5b82b1c15184f50270162a9f8ad6fb` | [Laxhar/noob-wiki](https://huggingface.co/datasets/Laxhar/noob-wiki) |
+
+### ControlNet (optional) — place in `controlnet/`
+
+| Filename | Size | MD5 | Source |
+|----------|------|-----|--------|
+| `openpose_fp32.safetensors` | 4.7 GB | `47148b6c32e3ed24b9802d58905c3667` | [xinsir/controlnet-openpose-sdxl-1.0](https://huggingface.co/xinsir/controlnet-openpose-sdxl-1.0) |
 
 These assets carry their own licenses. See each source for terms.
 
