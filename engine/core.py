@@ -21,7 +21,6 @@ from engine.controlnet_manager import ControlNetManager
 from engine.progress import ProgressManager
 from engine.memory import clear_memory, teardown_pipeline
 from engine.prompt import TokenManager, EmbeddingGenerator
-from safety import PromptFilter
 
 torch.use_deterministic_algorithms(True, warn_only=True)
 torch.backends.cudnn.deterministic = True
@@ -108,7 +107,11 @@ class NoobAIEngine:
                 self._embedding_generator = EmbeddingGenerator(self.pipe)
                 logger.info(f"Prompt encoding: {self._embedding_generator.mode_description}")
 
-                self._prompt_filter = PromptFilter() if self.enable_safety_filter else None
+                if self.enable_safety_filter:
+                    from safety import PromptFilter
+                    self._prompt_filter = PromptFilter()
+                else:
+                    self._prompt_filter = None
 
                 if self.enable_dora:
                     self._dora_manager.load_adapter(dora_path)
