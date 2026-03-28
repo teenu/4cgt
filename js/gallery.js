@@ -3,6 +3,7 @@ import { navigate } from './app.js';
 import { t } from './i18n.js';
 
 const HF = 'https://huggingface.co/epigene/4cgt/resolve/main/showcase/';
+const IS_TOUCH = matchMedia('(hover: none)').matches;
 let _gallery = [];
 let _filter = 'all';
 let _search = '';
@@ -87,8 +88,20 @@ function renderGrid() {
     fig.appendChild(img);
     fig.appendChild(cap);
     fig.addEventListener('click', () => navigate('#/gallery/' + g.id));
+    if (!IS_TOUCH) addTilt(fig);
     grid.appendChild(fig);
   });
+}
+
+/* 3D perspective tilt — desktop only */
+function addTilt(el) {
+  el.addEventListener('mousemove', e => {
+    const r = el.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width - 0.5;
+    const y = (e.clientY - r.top) / r.height - 0.5;
+    el.style.transform = `perspective(800px) rotateY(${x * 10}deg) rotateX(${-y * 10}deg) scale(1.03)`;
+  });
+  el.addEventListener('mouseleave', () => { el.style.transform = ''; });
 }
 
 /* Detail view */
@@ -105,7 +118,9 @@ function showDetail(id) {
 
   view.innerHTML = `
     <a class="detail-back" id="detail-back">&larr; ${t('nav.gallery')}</a>
-    <img class="detail-image" src="${HF}${g.image}" alt="${g.character || g.id}" />
+    <div class="detail-frame">
+      <img src="${HF}${g.image}" alt="${g.character || g.id}" />
+    </div>
     <div class="detail-meta">
       <div class="detail-info">
         <h2>${g.character || g.tags[0] || g.id}</h2>
