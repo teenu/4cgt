@@ -685,41 +685,6 @@
     "nsfw": false
   },
   {
-    "id": "moonlit_warrior",
-    "image": "moonlit_warrior.png",
-    "date": "2026-03-27",
-    "character": null,
-    "series": null,
-    "tags": [
-      "moonlight",
-      "armor",
-      "sword",
-      "original"
-    ],
-    "prompt": "very awa, masterpiece, best quality, 1girl, long blue hair, flowing hair, piercing amber eyes, ornate armor, moonlit battlefield, glowing sword, cape billowing, dramatic clouds, full moon, full body, dynamic pose, epic",
-    "negative_prompt": "worst aesthetic, worst quality, lowres, scan artifacts, ai-generated, old, 4koma, multiple views, furry, anthro, watermark, logo, signature, artist name, bad hands, extra digits, fewer digits",
-    "settings": {
-      "seed": 7070,
-      "steps": 42,
-      "cfg_scale": 5.5261,
-      "rescale_cfg": 0.6092,
-      "width": 832,
-      "height": 1216,
-      "model": "NoobAI-XL-Vpred-v1.0",
-      "scheduler": "EulerDiscreteScheduler"
-    },
-    "dora": {
-      "enabled": true,
-      "adapter": "v0.271",
-      "mode": "none",
-      "strength": 1.0,
-      "start_step": 3
-    },
-    "commit": "5b93848",
-    "commentary": null,
-    "nsfw": false
-  },
-  {
     "id": "underwater_dream",
     "image": "underwater_dream.png",
     "date": "2026-03-27",
