@@ -12,6 +12,8 @@
 <meta property="og:url" content="https://4cgt.com">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://huggingface.co">
+<link rel="preload" as="image" href="https://huggingface.co/epigene/4cgt/resolve/main/showcase/frieren_beach.png">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Noto+Serif+JP:wght@400;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -29,7 +31,6 @@ body{
   background:var(--bg);
   color:var(--text);
   line-height:1.6;
-  min-height:100vh;
   overflow-x:hidden;
 }
 .noise{
@@ -39,31 +40,66 @@ body{
 
 /* Hero */
 .hero{
-  min-height:80vh;display:flex;flex-direction:column;
-  justify-content:center;align-items:center;text-align:center;
-  padding:60px 24px 40px;position:relative;z-index:1;
+  position:relative;
+  height:100vh;
+  height:100dvh;
+  overflow:hidden;
 }
-.kanji{
-  font-family:'Noto Serif JP',serif;font-size:clamp(64px,12vw,120px);
-  font-weight:700;letter-spacing:0.08em;line-height:1.1;
-  background:linear-gradient(135deg,#e0e0e8 0%,#a0a0b8 50%,#e0e0e8 100%);
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-  background-clip:text;
-  margin-bottom:8px;
+.hero-bg{position:absolute;inset:0;z-index:0}
+.hero-slide{
+  position:absolute;inset:0;
+  background-size:cover;
+  background-position:center;
+  opacity:0;
+  transition:opacity 1.5s ease-in-out;
+  will-change:opacity;
 }
-.brand{
-  font-size:clamp(20px,4vw,32px);font-weight:600;
-  letter-spacing:0.15em;color:var(--muted);margin-bottom:4px;
+.hero-slide.active{opacity:1}
+.hero-overlay{
+  position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:
+    linear-gradient(to bottom,
+      rgba(10,10,15,0.25) 0%,
+      rgba(10,10,15,0.05) 25%,
+      rgba(10,10,15,0.15) 55%,
+      rgba(10,10,15,0.65) 80%,
+      rgba(10,10,15,0.92) 100%
+    );
 }
-.romanji{
+.hero-content{
+  position:relative;z-index:2;
+  display:flex;flex-direction:column;align-items:center;text-align:center;
+  justify-content:flex-end;
+  height:100%;
+  padding:0 24px 12vh;
+}
+.hero-content .kanji{
   font-family:'Noto Serif JP',serif;
-  font-size:clamp(14px,2.5vw,18px);color:var(--muted);
-  letter-spacing:0.2em;margin-bottom:32px;
+  font-size:clamp(56px,11vw,110px);
+  font-weight:700;letter-spacing:0.08em;line-height:1.1;
+  color:#fff;
+  text-shadow:0 2px 30px rgba(0,0,0,0.7),0 0 60px rgba(0,0,0,0.4);
+  margin-bottom:4px;
 }
-.tagline{
-  font-size:clamp(16px,2.5vw,20px);font-weight:300;
-  color:var(--text);max-width:560px;margin-bottom:48px;
-  opacity:0.85;
+.hero-content .brand{
+  font-size:clamp(18px,3.5vw,28px);font-weight:600;
+  letter-spacing:0.15em;color:rgba(255,255,255,0.7);
+  text-shadow:0 1px 12px rgba(0,0,0,0.6);
+  margin-bottom:2px;
+}
+.hero-content .romanji{
+  font-family:'Noto Serif JP',serif;
+  font-size:clamp(13px,2vw,16px);
+  color:rgba(255,255,255,0.5);
+  letter-spacing:0.2em;
+  text-shadow:0 1px 8px rgba(0,0,0,0.6);
+  margin-bottom:24px;
+}
+.hero-content .tagline{
+  font-size:clamp(15px,2.2vw,18px);font-weight:300;
+  color:rgba(255,255,255,0.8);max-width:500px;
+  text-shadow:0 1px 16px rgba(0,0,0,0.7);
+  margin-bottom:32px;
 }
 .cta-row{display:flex;gap:16px;flex-wrap:wrap;justify-content:center}
 .btn{
@@ -71,93 +107,125 @@ body{
   padding:12px 28px;border-radius:8px;font-size:15px;
   font-weight:500;text-decoration:none;transition:all 0.2s;
 }
-.btn-primary{background:var(--text);color:var(--bg)}
+.btn-primary{
+  background:rgba(255,255,255,0.95);color:var(--bg);
+  backdrop-filter:blur(4px);
+}
 .btn-primary:hover{background:#fff;transform:translateY(-1px)}
-.btn-sponsor{border:1px solid var(--accent);color:var(--accent);background:transparent}
+.btn-sponsor{
+  border:1px solid var(--accent);color:var(--accent);
+  background:rgba(219,97,162,0.08);
+  backdrop-filter:blur(4px);
+}
 .btn-sponsor:hover{background:var(--accent-dim);transform:translateY(-1px)}
 .btn svg{width:18px;height:18px;fill:currentColor}
+.scroll-hint{
+  position:absolute;bottom:24px;left:50%;
+  transform:translateX(-50%);z-index:2;
+  opacity:0.5;transition:opacity 0.4s;
+}
+.scroll-hint.hidden{opacity:0;pointer-events:none}
+.scroll-hint::before{
+  content:'';display:block;width:20px;height:20px;
+  border-right:2px solid rgba(255,255,255,0.6);
+  border-bottom:2px solid rgba(255,255,255,0.6);
+  transform:rotate(45deg);
+  animation:bounce 2s infinite ease-in-out;
+}
+@keyframes bounce{
+  0%,100%{transform:rotate(45deg) translate(0,0)}
+  50%{transform:rotate(45deg) translate(3px,3px)}
+}
 
 /* Gallery */
 .gallery{
   position:relative;z-index:1;
-  padding:0 24px 40px;
-  max-width:1100px;margin:0 auto;
+  padding:80px 24px 60px;
+  max-width:1400px;margin:0 auto;
 }
 .gallery-grid{
   display:grid;
   grid-template-columns:repeat(4,1fr);
-  gap:8px;
+  gap:16px;
 }
-.gallery-grid img{
-  width:100%;
-  border-radius:8px;
-  display:block;
-  transition:transform 0.3s ease, box-shadow 0.3s ease;
-  cursor:pointer;
+.gallery-item{
+  position:relative;overflow:hidden;
+  border-radius:12px;cursor:pointer;
+  aspect-ratio:1216/832;
 }
-.gallery-grid img:hover{
-  transform:scale(1.03);
-  box-shadow:0 8px 32px rgba(0,0,0,0.5);
-  z-index:2;
-  position:relative;
+.gallery-item img{
+  width:100%;height:100%;object-fit:cover;
+  display:block;transition:transform 0.4s ease;
 }
-.gallery-caption{
-  text-align:center;
-  color:var(--muted);
-  font-size:12px;
-  margin-top:16px;
+.gallery-item:hover img{transform:scale(1.05)}
+.gallery-item figcaption{
+  position:absolute;bottom:0;left:0;right:0;
+  padding:28px 16px 14px;
+  background:linear-gradient(to top,rgba(10,10,15,0.85),transparent);
+  color:var(--text);font-size:14px;font-weight:500;
   letter-spacing:0.05em;
+  transform:translateY(100%);
+  transition:transform 0.3s ease;
+}
+.gallery-item:hover figcaption{transform:translateY(0)}
+.gallery-caption{
+  text-align:center;color:var(--muted);font-size:13px;
+  margin-top:24px;letter-spacing:0.04em;
+}
+
+@media(max-width:1024px){
+  .gallery-grid{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:480px){
+  .gallery{padding:48px 16px 40px}
+  .gallery-grid{gap:8px}
+  .gallery-item{border-radius:8px}
+  .gallery-item figcaption{transform:translateY(0);padding:20px 12px 10px;font-size:12px}
+}
+
+/* Lightbox */
+.lightbox{
+  display:none;position:fixed;inset:0;z-index:1000;
+  background:rgba(10,10,15,0.96);
+  justify-content:center;align-items:center;flex-direction:column;
+}
+.lightbox.open{display:flex}
+.lightbox-img{
+  max-width:90vw;max-height:80vh;object-fit:contain;
+  border-radius:4px;
+  opacity:0;transition:opacity 0.3s ease;
+}
+.lightbox-img.loaded{opacity:1}
+.lightbox-close{
+  position:absolute;top:16px;right:20px;
+  background:none;border:none;color:var(--text);
+  font-size:32px;cursor:pointer;opacity:0.5;
+  transition:opacity 0.2s;z-index:1001;
+  line-height:1;padding:8px;
+}
+.lightbox-close:hover{opacity:1}
+.lightbox-prev,.lightbox-next{
+  position:absolute;top:50%;transform:translateY(-50%);
+  background:none;border:none;color:var(--text);
+  font-size:44px;cursor:pointer;opacity:0.35;
+  transition:opacity 0.2s;padding:24px;z-index:1001;
+  line-height:1;
+}
+.lightbox-prev{left:8px}
+.lightbox-next{right:8px}
+.lightbox-prev:hover,.lightbox-next:hover{opacity:0.9}
+.lightbox-caption{
+  color:var(--muted);font-size:14px;margin-top:16px;
+  letter-spacing:0.05em;text-align:center;
 }
 @media(max-width:640px){
-  .gallery-grid{grid-template-columns:repeat(2,1fr);gap:6px}
+  .lightbox-prev,.lightbox-next{font-size:36px;padding:32px}
+  .lightbox-img{max-width:100vw;max-height:75vh;border-radius:0}
 }
-
-/* Divider */
-.divider{
-  width:60px;height:1px;background:var(--border);margin:60px auto;
-  position:relative;z-index:1;
-}
-
-/* Sections */
-.section{padding:0 24px 100px;position:relative;z-index:1}
-.section-title{
-  text-align:center;font-size:14px;font-weight:500;
-  letter-spacing:0.2em;text-transform:uppercase;
-  color:var(--muted);margin-bottom:48px;
-}
-.pillars{
-  display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
-  gap:24px;max-width:900px;margin:0 auto;
-}
-.pillar{
-  background:var(--surface);border:1px solid var(--border);
-  border-radius:12px;padding:28px 24px;
-  transition:border-color 0.3s;
-}
-.pillar:hover{border-color:#2e2e42}
-.pillar-kanji{
-  font-family:'Noto Serif JP',serif;font-size:28px;
-  margin-bottom:12px;line-height:1;
-}
-.pillar h3{font-size:15px;font-weight:600;margin-bottom:8px}
-.pillar p{font-size:13px;color:var(--muted);line-height:1.5}
-
-/* Features */
-.features{
-  max-width:900px;margin:0 auto;
-  display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
-  gap:20px;
-}
-.feature{
-  background:var(--surface);border:1px solid var(--border);
-  border-radius:12px;padding:24px;
-}
-.feature h3{font-size:14px;font-weight:600;margin-bottom:6px}
-.feature p{font-size:13px;color:var(--muted);line-height:1.5}
 
 /* Footer */
 footer{
-  text-align:center;padding:48px 24px;position:relative;z-index:1;
+  text-align:center;padding:40px 24px;position:relative;z-index:1;
   border-top:1px solid var(--border);color:var(--muted);font-size:13px;
 }
 footer a{color:var(--accent);text-decoration:none}
@@ -172,97 +240,155 @@ footer a:hover{text-decoration:underline}
 <div class="noise"></div>
 
 <section class="hero">
-  <div class="brand">4CGT</div>
-  <div class="kanji">四彫画匠</div>
-  <div class="romanji">Shich&#333; Gash&#333;</div>
-  <p class="tagline">Anime image generation that nails anatomy, follows your prompt, and gives you the same pixel-perfect result on any machine. Every time.</p>
-  <div class="cta-row">
-    <a href="https://github.com/teenu/4cgt" class="btn btn-primary">
-      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-      View on GitHub
-    </a>
-    <a href="https://github.com/sponsors/teenu" class="btn btn-sponsor">
-      <svg viewBox="0 0 16 16"><path d="M4.25 2.5c-1.336 0-2.75 1.164-2.75 3 0 2.15 1.58 4.144 3.365 5.682A20.565 20.565 0 008 13.393a20.561 20.561 0 003.135-2.211C12.92 9.644 14.5 7.65 14.5 5.5c0-1.836-1.414-3-2.75-3-1.373 0-2.609.986-3.029 2.456a.749.749 0 01-1.442 0C6.859 3.486 5.623 2.5 4.25 2.5z"/></svg>
-      Sponsor
-    </a>
+  <div class="hero-bg">
+    <div class="hero-slide active" style="background-image:url('https://huggingface.co/epigene/4cgt/resolve/main/showcase/frieren_beach.png')"></div>
+    <div class="hero-slide" style="background-image:url('https://huggingface.co/epigene/4cgt/resolve/main/showcase/lucy_cyberpunk.png')"></div>
+    <div class="hero-slide" style="background-image:url('https://huggingface.co/epigene/4cgt/resolve/main/showcase/miku.png')"></div>
+    <div class="hero-slide" style="background-image:url('https://huggingface.co/epigene/4cgt/resolve/main/showcase/makima.png')"></div>
+    <div class="hero-slide" style="background-image:url('https://huggingface.co/epigene/4cgt/resolve/main/showcase/asuka.png')"></div>
+    <div class="hero-slide" style="background-image:url('https://huggingface.co/epigene/4cgt/resolve/main/showcase/2b_ruins.png')"></div>
+    <div class="hero-slide" style="background-image:url('https://huggingface.co/epigene/4cgt/resolve/main/showcase/zero_two.png')"></div>
+    <div class="hero-slide" style="background-image:url('https://huggingface.co/epigene/4cgt/resolve/main/showcase/yor.png')"></div>
   </div>
+  <div class="hero-overlay"></div>
+  <div class="hero-content">
+    <div class="brand">4CGT</div>
+    <div class="kanji">四彫画匠</div>
+    <div class="romanji">Shich&#333; Gash&#333;</div>
+    <p class="tagline">Anime image generation with DoRA anatomical correction, 600-token prompts, and deterministic output across every platform.</p>
+    <div class="cta-row">
+      <a href="https://github.com/teenu/4cgt" class="btn btn-primary">
+        <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        View on GitHub
+      </a>
+      <a href="https://github.com/sponsors/teenu" class="btn btn-sponsor">
+        <svg viewBox="0 0 16 16"><path d="M4.25 2.5c-1.336 0-2.75 1.164-2.75 3 0 2.15 1.58 4.144 3.365 5.682A20.565 20.565 0 008 13.393a20.561 20.561 0 003.135-2.211C12.92 9.644 14.5 7.65 14.5 5.5c0-1.836-1.414-3-2.75-3-1.373 0-2.609.986-3.029 2.456a.749.749 0 01-1.442 0C6.859 3.486 5.623 2.5 4.25 2.5z"/></svg>
+        Sponsor
+      </a>
+    </div>
+  </div>
+  <div class="scroll-hint"></div>
 </section>
 
 <section class="gallery">
   <div class="gallery-grid">
-    <img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/frieren_beach.png" alt="Frieren — beach with cumulonimbus clouds" loading="lazy" />
-    <img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/lucy_cyberpunk.png" alt="Lucy — Cyberpunk Edgerunners neon portrait" loading="lazy" />
-    <img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/miku.png" alt="Hatsune Miku — ethereal diffused light" loading="lazy" />
-    <img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/makima.png" alt="Makima — Chainsaw Man ringed eyes close-up" loading="lazy" />
-    <img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/asuka.png" alt="Asuka Langley — EVA-02 plugsuit action" loading="lazy" />
-    <img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/2b_ruins.png" alt="2B — NieR Automata post-apocalyptic ruins" loading="lazy" />
-    <img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/zero_two.png" alt="Zero Two — Darling in the FranXX windswept" loading="lazy" />
-    <img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/yor.png" alt="Yor Briar — Spy x Family elegant portrait" loading="lazy" />
+    <figure class="gallery-item" data-index="0">
+      <img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/frieren_beach.png" alt="Frieren — beach with cumulonimbus clouds" loading="lazy" decoding="async" />
+      <figcaption>Frieren</figcaption>
+    </figure>
+    <figure class="gallery-item" data-index="1">
+      <img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/lucy_cyberpunk.png" alt="Lucy — Cyberpunk Edgerunners neon portrait" loading="lazy" decoding="async" />
+      <figcaption>Lucy</figcaption>
+    </figure>
+    <figure class="gallery-item" data-index="2">
+      <img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/miku.png" alt="Hatsune Miku — ethereal diffused light" loading="lazy" decoding="async" />
+      <figcaption>Hatsune Miku</figcaption>
+    </figure>
+    <figure class="gallery-item" data-index="3">
+      <img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/makima.png" alt="Makima — Chainsaw Man ringed eyes close-up" loading="lazy" decoding="async" />
+      <figcaption>Makima</figcaption>
+    </figure>
+    <figure class="gallery-item" data-index="4">
+      <img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/asuka.png" alt="Asuka Langley — EVA-02 plugsuit action" loading="lazy" decoding="async" />
+      <figcaption>Asuka Langley</figcaption>
+    </figure>
+    <figure class="gallery-item" data-index="5">
+      <img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/2b_ruins.png" alt="2B — NieR Automata post-apocalyptic ruins" loading="lazy" decoding="async" />
+      <figcaption>2B</figcaption>
+    </figure>
+    <figure class="gallery-item" data-index="6">
+      <img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/zero_two.png" alt="Zero Two — Darling in the FranXX windswept" loading="lazy" decoding="async" />
+      <figcaption>Zero Two</figcaption>
+    </figure>
+    <figure class="gallery-item" data-index="7">
+      <img src="https://huggingface.co/epigene/4cgt/resolve/main/showcase/yor.png" alt="Yor Briar — Spy x Family elegant portrait" loading="lazy" decoding="async" />
+      <figcaption>Yor Briar</figcaption>
+    </figure>
   </div>
-  <p class="gallery-caption">All generated with 4CGT. DoRA v0.271 &middot; 42 steps &middot; Same seed = same image on any machine.</p>
-</section>
-
-<div class="divider"></div>
-
-<section class="section">
-  <div class="section-title">The Four Pillars &mdash; 四つの柱</div>
-  <div class="pillars">
-    <div class="pillar">
-      <div class="pillar-kanji">精</div>
-      <h3>Anatomical Accuracy</h3>
-      <p>DoRA weight-decomposed adapters trained specifically for v-prediction. Mathematically optimized CFG scales for zero terminal SNR.</p>
-    </div>
-    <div class="pillar">
-      <div class="pillar-kanji">誠</div>
-      <h3>Prompt Fidelity</h3>
-      <p>Long prompt support beyond the 77-token CLIP limit. Up to 600 tokens with A1111-compatible weight syntax.</p>
-    </div>
-    <div class="pillar">
-      <div class="pillar-kanji">鮮</div>
-      <h3>Image Quality</h3>
-      <p>Lossless FP32 VAE pipeline. FP16 rejected by design. BF16/FP32 only &mdash; no lossy quantization, ever.</p>
-    </div>
-    <div class="pillar">
-      <div class="pillar-kanji">定</div>
-      <h3>Deterministic Output</h3>
-      <p>Same seed, same image hash &mdash; macOS, Windows, Linux. CPU RNG, enforced deterministic algorithms, cross-platform parity.</p>
-    </div>
-  </div>
-</section>
-
-<section class="section">
-  <div class="section-title">Capabilities</div>
-  <div class="features">
-    <div class="feature">
-      <h3>2D &rarr; 3D Pipeline</h3>
-      <p>Integrated Apple Sharp image-to-3D Gaussian Splat conversion. Sub-second inference with optional camera-trajectory video render.</p>
-    </div>
-    <div class="feature">
-      <h3>ControlNet Pose</h3>
-      <p>OpenPose skeleton conditioning optimized for v-prediction models. Higher conditioning scales for proper pose adherence.</p>
-    </div>
-    <div class="feature">
-      <h3>DoRA Stabilizers</h3>
-      <p>Three modes: None (optimal defaults), Optimized (preset-locked 34-step schedule), and Manual (per-step binary control).</p>
-    </div>
-    <div class="feature">
-      <h3>Gradio UI + CLI</h3>
-      <p>Web interface with character/artist autocomplete from Danbooru and e621. Full CLI for batch generation and scripting.</p>
-    </div>
-    <div class="feature">
-      <h3>Broad GPU Support</h3>
-      <p>RTX 5090 (Blackwell) to GTX 1060. Apple Silicon native. Automatic CPU offloading for GPUs under 8GB VRAM.</p>
-    </div>
-    <div class="feature">
-      <h3>Open Source</h3>
-      <p>AGPL-3.0 licensed. Free to use, modify, and distribute. Built on NoobAI XL V-Pred 1.0.</p>
-    </div>
-  </div>
+  <p class="gallery-caption">All generated with 4CGT &middot; DoRA v0.271 &middot; 42 steps &middot; Same seed = same image on any machine</p>
 </section>
 
 <footer>
   <div class="footer-kanji">四彫画匠</div>
   <p>4CGT &mdash; <a href="https://github.com/teenu/4cgt">GitHub</a> &middot; <a href="https://github.com/sponsors/teenu">Sponsor</a> &middot; AGPL-3.0</p>
 </footer>
+
+<div class="lightbox" id="lightbox">
+  <button class="lightbox-close" aria-label="Close">&times;</button>
+  <button class="lightbox-prev" aria-label="Previous">&#8249;</button>
+  <button class="lightbox-next" aria-label="Next">&#8250;</button>
+  <img class="lightbox-img" src="" alt="">
+  <div class="lightbox-caption"></div>
+</div>
+
+<script>
+(function(){
+  var slides=document.querySelectorAll('.hero-slide');
+  var idx=0;
+  setInterval(function(){
+    slides[idx].classList.remove('active');
+    idx=(idx+1)%slides.length;
+    slides[idx].classList.add('active');
+  },6000);
+
+  var hint=document.querySelector('.scroll-hint');
+  window.addEventListener('scroll',function(){
+    if(window.scrollY>80)hint.classList.add('hidden');
+    else hint.classList.remove('hidden');
+  },{passive:true});
+
+  var images=[
+    {src:'https://huggingface.co/epigene/4cgt/resolve/main/showcase/frieren_beach.png',caption:'Frieren'},
+    {src:'https://huggingface.co/epigene/4cgt/resolve/main/showcase/lucy_cyberpunk.png',caption:'Lucy'},
+    {src:'https://huggingface.co/epigene/4cgt/resolve/main/showcase/miku.png',caption:'Hatsune Miku'},
+    {src:'https://huggingface.co/epigene/4cgt/resolve/main/showcase/makima.png',caption:'Makima'},
+    {src:'https://huggingface.co/epigene/4cgt/resolve/main/showcase/asuka.png',caption:'Asuka Langley'},
+    {src:'https://huggingface.co/epigene/4cgt/resolve/main/showcase/2b_ruins.png',caption:'2B'},
+    {src:'https://huggingface.co/epigene/4cgt/resolve/main/showcase/zero_two.png',caption:'Zero Two'},
+    {src:'https://huggingface.co/epigene/4cgt/resolve/main/showcase/yor.png',caption:'Yor Briar'}
+  ];
+  var lb=document.getElementById('lightbox');
+  var lbImg=lb.querySelector('.lightbox-img');
+  var lbCap=lb.querySelector('.lightbox-caption');
+  var lbIdx=0;
+
+  function openLb(i){
+    lbIdx=i;
+    lbImg.classList.remove('loaded');
+    lbImg.src=images[i].src;
+    lbImg.alt=images[i].caption;
+    lbCap.textContent=images[i].caption;
+    lb.classList.add('open');
+    document.body.style.overflow='hidden';
+    lbImg.onload=function(){lbImg.classList.add('loaded')};
+  }
+  function closeLb(){
+    lb.classList.remove('open');
+    document.body.style.overflow='';
+  }
+  function navLb(d){
+    lbIdx=(lbIdx+d+images.length)%images.length;
+    lbImg.classList.remove('loaded');
+    lbImg.src=images[lbIdx].src;
+    lbImg.alt=images[lbIdx].caption;
+    lbCap.textContent=images[lbIdx].caption;
+    lbImg.onload=function(){lbImg.classList.add('loaded')};
+  }
+
+  document.querySelectorAll('.gallery-item').forEach(function(el){
+    el.addEventListener('click',function(){openLb(+el.dataset.index)});
+  });
+  lb.querySelector('.lightbox-close').addEventListener('click',closeLb);
+  lb.querySelector('.lightbox-prev').addEventListener('click',function(e){e.stopPropagation();navLb(-1)});
+  lb.querySelector('.lightbox-next').addEventListener('click',function(e){e.stopPropagation();navLb(1)});
+  lb.addEventListener('click',function(e){if(e.target===lb)closeLb()});
+  document.addEventListener('keydown',function(e){
+    if(!lb.classList.contains('open'))return;
+    if(e.key==='Escape')closeLb();
+    if(e.key==='ArrowLeft')navLb(-1);
+    if(e.key==='ArrowRight')navLb(1);
+  });
+})();
+</script>
 </body>
 </html>
