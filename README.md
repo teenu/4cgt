@@ -57,35 +57,51 @@ python main.py --cli \
 
 ## Assets
 
-4CGT requires third-party model assets. Download from their original sources and verify MD5 hashes to ensure quality parity.
+4CGT requires third-party model assets. Download from their original sources and verify SHA-256 hashes to ensure quality parity.
 
 ### Base model — place in repo root
 
-| Filename | Size | MD5 | Source |
-|----------|------|-----|--------|
-| `NoobAI-XL-Vpred-v1.0.safetensors` | 6.6 GB | `a0815ef81f4a91a830dcc35dc8e06ac1` | [Laxhar/noobai-XL-Vpred-1.0](https://huggingface.co/Laxhar/noobai-XL-Vpred-1.0) |
+| Filename | Size | SHA-256 | Source |
+|----------|------|---------|--------|
+| `NoobAI-XL-Vpred-v1.0.safetensors` | 6.6 GB | `ea349eea...e02819` | [Laxhar/noobai-XL-Vpred-1.0](https://huggingface.co/Laxhar/noobai-XL-Vpred-1.0) |
 
 ### DoRA adapters — place in `dora/`
 
-| Filename | Size | MD5 | Source |
-|----------|------|-----|--------|
-| `noobai_vp10_stabilizer_v0.271_fp16.safetensors` | 43.7 MB | `0ae1e1a7e4e2e1a9edd22da1dfd78f7e` | [Civitai: reakaakasky](https://civitai.com/models/971952) |
-| `noobai_vp10_stabilizer_v0.280a_fp16.safetensors` | 63.6 MB | `ee115dbd7b0a3a299c7e3c3ecb4fab7d` | [Civitai: reakaakasky](https://civitai.com/models/971952) |
+| Filename | Size | SHA-256 | Source |
+|----------|------|---------|--------|
+| `noobai_vp10_stabilizer_v0.271_fp16.safetensors` | 43.7 MB | `9567b54e...004fbc` | [Civitai: reakaakasky](https://civitai.com/models/971952) |
+| `noobai_vp10_stabilizer_v0.280a_fp16.safetensors` | 63.6 MB | `99db2d0b...1e2318` | [Civitai: reakaakasky](https://civitai.com/models/971952) |
 
 ### Style CSVs — place in `style/`
 
-| Filename | Size | MD5 | Source |
-|----------|------|-----|--------|
-| `danbooru_character_webui.csv` | 37.2 MB | `805800601b9b4b0d48e865a9f9c2adb8` | [Laxhar/noob-wiki](https://huggingface.co/datasets/Laxhar/noob-wiki) |
-| `danbooru_artist_webui.csv` | 31.3 MB | `ed162a26fcf0ebaa3dccd7633fc3891c` | [Laxhar/noob-wiki](https://huggingface.co/datasets/Laxhar/noob-wiki) |
-| `e621_character_webui.csv` | 27.9 MB | `ca90a808278db5245af741d5bef21002` | [Laxhar/noob-wiki](https://huggingface.co/datasets/Laxhar/noob-wiki) |
-| `e621_artist_webui.csv` | 12.5 MB | `ce5b82b1c15184f50270162a9f8ad6fb` | [Laxhar/noob-wiki](https://huggingface.co/datasets/Laxhar/noob-wiki) |
+| Filename | Size | SHA-256 | Source |
+|----------|------|---------|--------|
+| `danbooru_character_webui.csv` | 37.2 MB | `4925522e...45ac1` | [Laxhar/noob-wiki](https://huggingface.co/datasets/Laxhar/noob-wiki) |
+| `danbooru_artist_webui.csv` | 31.3 MB | `a6dad048...ad741` | [Laxhar/noob-wiki](https://huggingface.co/datasets/Laxhar/noob-wiki) |
+| `e621_character_webui.csv` | 27.9 MB | `f18d33a3...85a91` | [Laxhar/noob-wiki](https://huggingface.co/datasets/Laxhar/noob-wiki) |
+| `e621_artist_webui.csv` | 12.5 MB | `87a78e28...6fa6` | [Laxhar/noob-wiki](https://huggingface.co/datasets/Laxhar/noob-wiki) |
 
 ### ControlNet (optional) — place in `controlnet/`
 
-| Filename | Size | MD5 | Source |
-|----------|------|-----|--------|
-| `openpose_fp32.safetensors` | 4.7 GB | `47148b6c32e3ed24b9802d58905c3667` | [xinsir/controlnet-openpose-sdxl-1.0](https://huggingface.co/xinsir/controlnet-openpose-sdxl-1.0) |
+| Filename | Size | SHA-256 | Source |
+|----------|------|---------|--------|
+| `openpose_fp32.safetensors` | 4.7 GB | `9e763e0b...a50fc` | [xinsir/controlnet-openpose-sdxl-1.0](https://huggingface.co/xinsir/controlnet-openpose-sdxl-1.0) |
+
+<details>
+<summary>Full SHA-256 hashes</summary>
+
+```
+ea349eeae87ca8d25ba902c93810f7ca83e5c82f920edf12f273af004ae02819  NoobAI-XL-Vpred-v1.0.safetensors
+9567b54e807c004eef3f89b268a8d61d76d0b62c0061484fc1816a03fc004fbc  noobai_vp10_stabilizer_v0.271_fp16.safetensors
+99db2d0bf94c05777304bf08aa8d25c3ce8a99d1c1def4cbb81c06eddb1e2318  noobai_vp10_stabilizer_v0.280a_fp16.safetensors
+4925522e2fddde5ed1815aa71b93a396fdd4b5c66c1345d394d01a6661c45ac1  danbooru_character_webui.csv
+a6dad04843d2c3aaabeaba43fa95d33270e27ddd9d782ba099443598778ad741  danbooru_artist_webui.csv
+f18d33a3ef47761d4991844d30f6c0826c4e471d21f8cc59e486eb34da785a91  e621_character_webui.csv
+87a78e2811b4d679a8227759c10d61be63f7babaf49322ce7c780b88ef9d6fa6  e621_artist_webui.csv
+9e763e0b0160050a3ade517d3efb80789bc8a0ba12c6a10b923b0eff242a50fc  openpose_fp32.safetensors
+```
+
+</details>
 
 These assets carry their own licenses. See each source for terms.
 
