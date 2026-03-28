@@ -580,41 +580,6 @@
     "nsfw": false
   },
   {
-    "id": "winter_snow",
-    "image": "winter_snow.png",
-    "date": "2026-03-26",
-    "character": null,
-    "series": null,
-    "tags": [
-      "snow",
-      "winter",
-      "cinematic",
-      "original"
-    ],
-    "prompt": "very awa, masterpiece, best quality, year 2024, newest, highres, absurdres, 1girl, white hair, blue eyes, fur coat, looking at viewer, detailed face, upper body, falling snow, winter evening, cinematic lighting",
-    "negative_prompt": "worst aesthetic, worst quality, lowres, scan artifacts, ai-generated, old, 4koma, multiple views, furry, anthro, watermark, logo, signature, artist name, bad hands, extra digits, fewer digits",
-    "settings": {
-      "seed": 3333,
-      "steps": 42,
-      "cfg_scale": 5.5261,
-      "rescale_cfg": 0.6092,
-      "width": 1216,
-      "height": 832,
-      "model": "NoobAI-XL-Vpred-v1.0",
-      "scheduler": "EulerDiscreteScheduler"
-    },
-    "dora": {
-      "enabled": true,
-      "adapter": "v0.271",
-      "mode": "none",
-      "strength": 1.0,
-      "start_step": 3
-    },
-    "commit": "5b93848",
-    "commentary": null,
-    "nsfw": false
-  },
-  {
     "id": "cyberpunk_rain",
     "image": "cyberpunk_rain.png",
     "date": "2026-03-27",
