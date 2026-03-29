@@ -581,41 +581,6 @@
     "nsfw": false
   },
   {
-    "id": "enchanted_forest",
-    "image": "enchanted_forest.png",
-    "date": "2026-03-27",
-    "character": null,
-    "series": null,
-    "tags": [
-      "forest",
-      "magic",
-      "fireflies",
-      "original"
-    ],
-    "prompt": "very awa, masterpiece, best quality, 1girl, purple hair, long flowing hair, witch hat, violet eyes, enchanted forest, glowing mushrooms, fireflies, ancient tree, magical particles, dark cloak, mysterious smile, cinematic lighting",
-    "negative_prompt": "worst aesthetic, worst quality, lowres, scan artifacts, ai-generated, old, 4koma, multiple views, furry, anthro, watermark, logo, signature, artist name, bad hands, extra digits, fewer digits",
-    "settings": {
-      "seed": 8888,
-      "steps": 42,
-      "cfg_scale": 5.5261,
-      "rescale_cfg": 0.6092,
-      "width": 1216,
-      "height": 832,
-      "model": "NoobAI-XL-Vpred-v1.0",
-      "scheduler": "EulerDiscreteScheduler"
-    },
-    "dora": {
-      "enabled": true,
-      "adapter": "v0.271",
-      "mode": "none",
-      "strength": 1.0,
-      "start_step": 3
-    },
-    "commit": "5b93848",
-    "commentary": null,
-    "nsfw": false
-  },
-  {
     "id": "gothic_rose",
     "image": "gothic_rose.png",
     "date": "2026-03-27",
