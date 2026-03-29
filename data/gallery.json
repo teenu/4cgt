@@ -692,36 +692,6 @@
       "start_step": 3,
       "strength": 1
     },
-    "id": "noobai_1610434388",
-    "image": "noobai_1610434388.png",
-    "negative_prompt": "worst aesthetic, worst quality, lowres, scan artifacts, ai-generated, old, 4koma, multiple views, furry, anthro, watermark, logo, signature, artist name, bad hands, extra digits, fewer digits",
-    "nsfw": false,
-    "prompt": "very awa, masterpiece, best quality, year 2024, newest, highres, absurdres, misato katsuragi, neon genesis evangelion, closeup, aviator glasses, pink lipstick, bubblegum, diffused sunlight, soft shadows, exceptional composition, dark contrast, stunning",
-    "series": null,
-    "settings": {
-      "cfg_scale": 5.5261,
-      "height": 832,
-      "model": "NoobAI-XL-Vpred-v1.0",
-      "rescale_cfg": 0.6092,
-      "scheduler": "EulerDiscreteScheduler",
-      "seed": 1610434388,
-      "steps": 42,
-      "width": 1216
-    },
-    "tags": []
-  },
-  {
-    "character": "glasses",
-    "commentary": null,
-    "commit": "a84b9ef",
-    "date": "2026-03-29",
-    "dora": {
-      "adapter": "v0.271",
-      "enabled": true,
-      "mode": "none",
-      "start_step": 3,
-      "strength": 1
-    },
     "id": "noobai_3239738861",
     "image": "noobai_3239738861.png",
     "negative_prompt": "worst aesthetic, worst quality, lowres, scan artifacts, ai-generated, old, 4koma, multiple views, furry, anthro, watermark, logo, signature, artist name, bad hands, extra digits, fewer digits",
