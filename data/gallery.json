@@ -739,5 +739,35 @@
       "width": 1216
     },
     "tags": []
+  },
+  {
+    "character": "fern",
+    "commentary": null,
+    "commit": "1acfdc6",
+    "date": "2026-03-29",
+    "dora": {
+      "adapter": "v0.271",
+      "enabled": true,
+      "mode": "none",
+      "start_step": 3,
+      "strength": 1
+    },
+    "id": "noobai_1663646634",
+    "image": "noobai_1663646634.png",
+    "negative_prompt": "worst aesthetic, worst quality, lowres, scan artifacts, ai-generated, old, 4koma, multiple views, furry, anthro, watermark, logo, signature, artist name, bad hands, extra digits, fewer digits",
+    "nsfw": false,
+    "prompt": "very awa, masterpiece, best quality, year 2024, newest, highres, absurdres, 1girl, purple eyes, purple hair, long hair, straight hair, blunt bangs, sidelocks, large breasts, white dress, long sleeves, fern \\(sousou no frieren\\), sousou no frieren, detailed, closeup, intense magic, stunning",
+    "series": null,
+    "settings": {
+      "cfg_scale": 5.5261,
+      "height": 832,
+      "model": "NoobAI-XL-Vpred-v1.0",
+      "rescale_cfg": 0.6092,
+      "scheduler": "EulerDiscreteScheduler",
+      "seed": 1663646634,
+      "steps": 42,
+      "width": 1216
+    },
+    "tags": []
   }
 ]
